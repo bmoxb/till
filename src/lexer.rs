@@ -42,7 +42,9 @@ impl Lexer {
     fn next_char(&mut self) -> Option<char> {
         let mut buf = [0];
         self.reader.read(&mut buf).ok()?;
-        Some(buf[0] as char)
+        
+        let c = buf[0] as char;
+        if c != '\u{0}' { Some(c) } else { None }
     }
 }
 
@@ -61,5 +63,6 @@ mod tests {
         let mut lex = Lexer::from_stream(Box::new("xy".as_bytes()));
         assert_eq!(lex.next_char(), Some('x'));
         assert_eq!(lex.next_char(), Some('y'));
+        assert_eq!(lex.next_char(), None);
     }
 }
