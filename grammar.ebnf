@@ -1,0 +1,22 @@
+<program> ::= <chunk> '\n'*
+
+<chunk> ::= <stmt> ('\n'+ <stmt>)*
+
+<block> ::= ('\n'+ indentincr | ':') <chunk> indentdecr
+
+<stmt> ::= 'if' <expr> <block> ('\n'+ 'else' <block>)? | (* if statement (optional else clause *)
+           <functionheader> <block> | (* define function *)
+           <type> <assignment> (',' <assignment>)* (* declare new bindings *)
+
+<functionheader> ::= '(' (<arg> (',' <arg>)*)? ')' ('->' <type>)?
+
+<arg> ::= <type> identifier
+
+<type> ::= typeidentifier |
+           '[' <type> ']' (* array type *)
+
+<assignment> ::= identifier '=' <expr>
+
+<expr> ::= number | string | (* literals *)
+           identifier | (* binding *)
+           identifier '(' (<expr> (',' <expr>)*)? ')' (* function call *)
