@@ -1,28 +1,92 @@
 use std::{ io, fs };
+use regex::Regex;
+use lazy_static::lazy_static;
 
 pub enum Token {
     // Keywords:
-    IfKeyword,
-    ElseKeyword,
+    IfKeyword, // if
+    ElseKeyword, // else
     // Whitespace:
     Newlines,
     IndentIncr,
     IndentDecr,
     // Brackets:
-    BracketOpen,
-    BracketClose,
-    BracketSquareOpen,
-    BracketSquareClose,
+    BracketOpen, // (
+    BracketClose, // )
+    BracketSquareOpen, // [
+    BracketSquareClose, // ]
     // Identifiers:
-    Identifier,
-    TypeIdentifier,
+    Identifier(String),
+    TypeIdentifier(String),
     // Literals:
-    NumberLiteral,
-    StringLiteral,
+    NumberLiteral(f32),
+    StringLiteral(String),
     // Other:
-    Arrow,
-    Comma,
-    Equals
+    Arrow, // ->
+    Comma, // ,
+    Equals, // =
+    Plus, // +
+    Minus, // -
+    Slash, // /
+    Star, // *
+    Caret // ^
+}
+
+enum Match<'a> {
+    ByChar(char),
+    ByRegex(&'a Regex)
+}
+
+enum Transition<'a> {
+    ToSelf(Match<'a>),
+    ToElsewhere(Match<'a>, State<'a>)
+}
+
+struct State<'a> {
+    transitions: Vec<Transition<'a>>,
+    parse: Option<fn(&str) -> Token>
+}
+
+fn number_literal_parse(lexeme: &str) -> Token {
+    Token::NumberLiteral(lexeme.parse().unwrap())
+}
+
+fn string_literal_parse(lexeme: &str) -> Token {
+    Token::StringLiteral(lexeme.to_owned()) // TODO: Handle escape sequences, remove opening & closing quotes
+}
+
+lazy_static! {
+    static ref DIGIT_REGEX: Regex = Regex::new(r"[0-9]").unwrap();
+
+    static ref STATES: State<'static> = State { // INITIAL STATE
+        parse: None,
+        transitions: vec![
+            Transition::ToElsewhere(
+                Match::ByRegex(&DIGIT_REGEX),
+                State { // INTEGER STATE
+                    parse: Some(number_literal_parse),
+                    transitions: vec![
+                        Transition::ToSelf(Match::ByRegex(&DIGIT_REGEX)),
+                        Transition::ToElsewhere(
+                            Match::ByChar('.'),
+                            State { // POTENTIAL FLOAT STATE
+                                parse: None, // do not accept digit(s), decimal point, but no following digit(s)
+                                transitions: vec![
+                                    Transition::ToElsewhere(
+                                        Match::ByRegex(&DIGIT_REGEX),
+                                        State { // FLOAT STATE
+                                            parse: Some(number_literal_parse),
+                                            transitions: vec![Transition::ToSelf(Match::ByRegex(&DIGIT_REGEX))]
+                                        }
+                                    )
+                                ]
+                            }
+                        )
+                    ]
+                }
+            )
+        ]
+    };
 }
 
 pub struct Lexer {
@@ -30,11 +94,11 @@ pub struct Lexer {
 }
 
 impl Lexer {
-    fn from_stream(reader: Box<dyn io::Read>) -> Lexer {
+    pub fn from_stream(reader: Box<dyn io::Read>) -> Lexer {
         Lexer { reader }
     }
 
-    fn from_file(f: fs::File) -> Lexer {
+    pub fn from_file(f: fs::File) -> Lexer {
         let buf_reader = io::BufReader::new(f);
         Lexer::from_stream(Box::new(buf_reader))
     }
