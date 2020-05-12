@@ -1,15 +1,22 @@
-# TILang (Tiny Interpreted Language)
+# TILL (Tiny Interpreted Lightweight Language)
 
-## Feature Checklist
+## Checklist
+
+* [ ] Lexer
+* [ ] Parser
+* [ ] Executor
+
+## Language Features
 
 ### Statements
 
 * [ ] If-else statement
 * [ ] Define functions
-* [ ] Declare new binding
+* [ ] Declare new bindings
 
 ### Expressions
 
-* [ ] Literals
+* [ ] Number literals
+* [ ] String literals (with escape sequences)
 * [ ] Bindings
 * [ ] Function calls
