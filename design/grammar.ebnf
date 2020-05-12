@@ -1,23 +1,36 @@
-<program> ::= <chunk> '\n'*
+(* Groupings *)
 
-<chunk> ::= <stmt> ('\n'+ <stmt>)*
+<chunk> ::= (<stmt> newlines)*
 
-<block> ::= '\n'+ indentincr <chunk> indentdecr
+<block> ::= newlines indentincr <chunk> indentdecr
 
-<stmt> ::= 'if' <expr> <block> ('\n'+ 'else' <block>)? | (* if statement (optional else clause *)
-           <functionheader> <block> | (* define function *)
-           <type> <assignment> (',' <assignment>)* (* declare new bindings *)
+(* Statements *)
 
-<functionheader> ::= '(' (<arg> (',' <arg>)*)? ')' ('->' <type>)?
+<stmt> ::= "if" <expr> <block> ("else" <block>)? (* if statement (optional else clause *)
+         | "(" (<arg> ("," <arg>)*)? ")" ("->" <type>)? <block> (* define function *)
+         | <type> <assignment> ("," <assignment>)* (* declare new bindings *)
 
 <arg> ::= <type> identifier
 
 <type> ::= typeidentifier |
-           '[' <type> ']' (* array type *)
+           "[" <type> "]" (* array type *)
 
-<assignment> ::= identifier '=' <expr>
+<assignment> ::= identifier "=" <expr>
 
-<expr> ::= number | string | (* literals *)
-           '[' (<expr> (',' <expr>)*)? ']' | (* array *)
-           identifier | (* binding *)
-           identifier '(' (<expr> (',' <expr>)*)? ')' (* function call *)
+(* Expressions *)
+
+<expr> ::= <comparison> (("!="|"==") <comparison>)*
+
+<comparison> ::= <addition> (("<"|">") <addition>)*
+
+<addition> ::= <multiplication> (("+"|"-") <multiplication>)*
+
+<multiplication> ::= <unary> (("*"|"/") <unary>)*
+
+<unary> ::= ("!"|"~") <unary>
+          | <primary>
+
+<primary> ::= number | string | character | "true" | "false"
+            | "[" (<expr> ("," <expr>)*)? "]"
+            | "(" <expr> ")"
+            | identifier
