@@ -1,7 +1,6 @@
 mod lexer;
 
 use std::collections::HashMap;
-use lazy_static::lazy_static;
 
 pub enum Token {
     // Keywords:
@@ -33,76 +32,74 @@ pub enum Token {
     Caret // ^
 }
 
-#[derive(PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub enum StateKey {
     Initial,
     Integer, PotentialReal, Real
 }
 
+fn match_digit(c: &char) -> bool { c.is_digit(10) }
+
+fn parse_number_literal(s: &str) -> Token { Token::NumberLiteral(s.parse().unwrap()) }
+
 pub fn new_lexer() -> lexer::Lexer<'static, StateKey, Token> {
-    lexer::Lexer::new(&STATES, StateKey::Initial)
-}
+    let mut states = HashMap::new();
 
-lazy_static! {
-    static ref STATES: lexer::States<StateKey, Token> = {
-        let mut map = HashMap::new();
+    states.insert(
+        StateKey::Initial,
+        lexer::State {
+            parse_fn: None, // cannot exit initial state
+            transitions: vec![
+                lexer::Transition {
+                    match_fn: &match_digit,
+                    to: lexer::Dest::To(StateKey::Integer)
+                }
+            ]
+        }
+    );
 
-        map.insert(
-            StateKey::Initial,
-            lexer::State {
-                parse_fn: None, // cannot exit initial state
-                transitions: vec![
-                    lexer::Transition {
-                        match_fn: |c| c.is_digit(10),
-                        to: lexer::Dest::To(StateKey::Integer)
-                    }
-                ]
-            }
-        );
+    states.insert(
+        StateKey::Integer,
+        lexer::State {
+            parse_fn: Some(&parse_number_literal),
+            transitions: vec![
+                lexer::Transition {
+                    match_fn: &|c| c == &'.',
+                    to: lexer::Dest::To(StateKey::PotentialReal)
+                },
+                lexer::Transition {
+                    match_fn: &match_digit,
+                    to: lexer::Dest::ToSelf
+                }
+            ]
+        }
+    );
 
-        map.insert(
-            StateKey::Integer,
-            lexer::State {
-                parse_fn: Some(|c| Token::NumberLiteral(c.parse().unwrap())),
-                transitions: vec![
-                    lexer::Transition {
-                        match_fn: |c| c == &'.',
-                        to: lexer::Dest::To(StateKey::PotentialReal)
-                    },
-                    lexer::Transition {
-                        match_fn: |c| c.is_digit(10),
-                        to: lexer::Dest::ToSelf
-                    }
-                ]
-            }
-        );
+    states.insert(
+        StateKey::PotentialReal,
+        lexer::State {
+            parse_fn: None, // Digit(s), decimal point, without further digit(s) in invalid
+            transitions: vec![
+                lexer::Transition {
+                    match_fn: &match_digit,
+                    to: lexer::Dest::To(StateKey::Real)
+                }
+            ]
+        }
+    );
 
-        map.insert(
-            StateKey::PotentialReal,
-            lexer::State {
-                parse_fn: None, // Digit(s), decimal point, without further digit(s) in invalid
-                transitions: vec![
-                    lexer::Transition {
-                        match_fn: |c| c.is_digit(10),
-                        to: lexer::Dest::To(StateKey::Real)
-                    }
-                ]
-            }
-        );
-
-        map.insert(
-            StateKey::Real,
-            lexer::State {
-                parse_fn: Some(|c| Token::NumberLiteral(c.parse().unwrap())),
-                transitions: vec![
-                    lexer::Transition {
-                        match_fn: |c| c.is_digit(10),
-                        to: lexer::Dest::ToSelf
-                    }
-                ]
-            }
-        );
-
-        map
-    };
+    states.insert(
+        StateKey::Real,
+        lexer::State {
+            parse_fn: Some(&parse_number_literal),
+            transitions: vec![
+                lexer::Transition {
+                    match_fn: &match_digit,
+                    to: lexer::Dest::ToSelf
+                }
+            ]
+        }
+    );
+    
+    lexer::Lexer::new(states, StateKey::Initial)
 }
