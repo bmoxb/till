@@ -115,9 +115,15 @@ mod tests {
         let mut lxr = new_lexer();
         
         lxr.input_str("12.3");
-        assert_eq!(lxr.next(), Some(Token::NumberLiteral(12.3)));
+        assert_eq!(lxr.next(),
+            Some(lexer::LexResult::Success(Token::NumberLiteral(12.3), "12.3".to_string()))
+        );
+
+        assert_eq!(lxr.next(), None); // end of stream
 
         lxr.input_str("12.");
-        assert_eq!(lxr.next(), None);
+        assert_eq!(lxr.next(),
+            Some(lexer::LexResult::Failure("12.".to_string()))
+        );
     }
 }

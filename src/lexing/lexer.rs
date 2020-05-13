@@ -1,20 +1,44 @@
 use std::{ io, fs, collections::HashMap, hash::Hash, fmt::Debug };
 
-pub enum Dest<Key> {
-    ToSelf, To(Key)
-}
-
-pub struct Transition<'a, Key> {
-    pub match_fn: &'a dyn Fn(&char) -> bool,
-    pub to: Dest<Key>
-}
-
+/// Describes a lexing state. Can include any number of transitions to other
+/// states. When the lexer finds no appropriate transitions from this state,
+/// the specified parsing function (should there be one) is called in order to
+/// convert the lexeme to a token.
+/// Should the lexer find itself on a state with no parsing function that it is
+/// unable to transition off from, it is evident that the input stream is invalid
+/// for the given lexer states and a lexical error has occured.
 pub struct State<'a, Key, Token> {
     pub parse_fn: Option<&'a dyn Fn(&str) -> Token>,
     pub transitions: Vec<Transition<'a, Key>>
 }
 
+/// Describes a transition from one state to another (or itself). The lexer
+/// decides whether this transition can be followed by calling that transition's
+/// matching function with the character most recently read from the stream.
+/// Should the matching funtion return turn true, the lexer will transition
+/// states as specified.
+pub struct Transition<'a, Key> {
+    pub match_fn: &'a dyn Fn(&char) -> bool,
+    pub to: Dest<Key>
+}
+
+/// Indicates how the lexer should transition state - either to remain on the
+/// current state or to transition to a state with a given key.
+pub enum Dest<Key> {
+    ToSelf, To(Key)
+}
+
+/// Type allias for a hash map of state keys to states.
 pub type States<'a, Key, Token> = HashMap<Key, State<'a, Key, Token>>;
+
+/// Indicates the result of attempting to find the next token - either success
+/// (includes the token and the valid lexeme) or failure (just the invalid lexeme
+/// and obviously no token).
+#[derive(Debug, PartialEq)]
+pub enum LexResult<Token> {
+    Success(Token, String),
+    Failure(String)
+}
 
 pub struct Lexer<'a, Key: Copy, Token> {
     reader: Option<Box<dyn io::Read>>,
@@ -68,10 +92,10 @@ impl<Key: Copy, Token> Lexer<'_, Key, Token> {
 }
 
 impl<Key: Copy + Eq + Hash + Debug, Token: Debug> Iterator for Lexer<'_, Key, Token> {
-    type Item = Token;
+    type Item = LexResult<Token>;
 
-    /// Return the next token in the current input stream.
-    fn next(&mut self) -> Option<Token> {
+    /// Return the next token and lexeme in the current input stream.
+    fn next(&mut self) -> Option<Self::Item> {
         let mut current_key = self.initial_state_key;
         let mut lexeme = String::new();
 
@@ -94,7 +118,8 @@ impl<Key: Copy + Eq + Hash + Debug, Token: Debug> Iterator for Lexer<'_, Key, To
 
                             Dest::ToSelf => { println!("Remaining in current state {:?}...", current_key); }
                         }
-                        break;
+                        break; // If a match is found for this transition, there's
+                               // reason to check remaining transitions also.
                     }
                 }
             }
@@ -104,11 +129,17 @@ impl<Key: Copy + Eq + Hash + Debug, Token: Debug> Iterator for Lexer<'_, Key, To
         if let Some(parse_fn) = self.states.get(&current_key).unwrap().parse_fn {
             let tok = parse_fn(&lexeme);
             println!("Lexeme parsed to token: {:?}", tok);
-            Some(tok)
+            Some(LexResult::Success(tok, lexeme))
         }
         else {
-            println!("Finished in state which cannot be exited from!");
-            None
+            if !lexeme.is_empty() { 
+                println!("Finished in state which cannot be exited from!");
+                Some(LexResult::Failure(lexeme))
+            }
+            else {
+                println!("Reached end of current input stream.");
+                None
+            }
         }
     }
 }
