@@ -125,5 +125,10 @@ mod tests {
         assert_eq!(lxr.next(),
             Some(lexer::LexResult::Failure("12.".to_string()))
         );
+
+        lxr.input_str("10abc");
+        assert_eq!(lxr.next(),
+            Some(lexer::LexResult::Success(Token::NumberLiteral(10.0), "10".to_string()))
+        );
     }
 }

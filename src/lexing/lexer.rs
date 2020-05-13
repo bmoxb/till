@@ -57,7 +57,8 @@ pub struct Lexer<'a, Key: Copy, Token> {
     initial_state_key: Key
 }
 
-impl<Key: Copy, Token> Lexer<'_, Key, Token> {
+impl<Key, Token> Lexer<'_, Key, Token>
+where Key: Copy + Eq + Hash + Debug {
     /// Create a new lexer with it's own unique set of states.
     pub fn new(states: States<Key, Token>, initial_state_key: Key) -> Lexer<Key, Token> {
         Lexer {
@@ -104,84 +105,96 @@ impl<Key: Copy, Token> Lexer<'_, Key, Token> {
             None => None
         }
     }
+
+    fn get_state(&self, key: Key) -> &State<Key, Token> {
+        self.states.get(&key).expect(&format!("Lexer has no state defined for key: {:?}", key))
+    }
 }
 
-impl<Key: Copy + Eq + Hash + Debug, Token: Clone + Debug> Iterator for Lexer<'_, Key, Token> {
+impl<Key, Token> Iterator for Lexer<'_, Key, Token>
+where Key: Copy + Eq + Hash + Debug,
+      Token: Clone + Debug {
     type Item = LexResult<Token>;
 
     /// Return the next token and lexeme in the current input stream.
     fn next(&mut self) -> Option<Self::Item> {
         let mut current_key = self.initial_state_key;
-        let mut lexeme = String::new();
+        let mut lexeme = String::new(); // each char read from stream is appended to this string
+        
+        while let Some(chr) = self.next_char() {
+            let state = self.get_state(current_key);
+            println!("Current state: {:?}", current_key);
 
-        while let Some(c) = self.next_char() {
-            lexeme.push(c);
-            println!("Current lexeme: {}", lexeme);
+            println!("Read character from stream: {}", chr);
 
-            if let Some(state) = self.states.get(&current_key) {
-                println!("Current state: {:?}", current_key);
+            let transition_attempt = attempt_state_transition(current_key, &state.transitions, chr);
 
-                for transition in &state.transitions {
-                    if attempt_state_transition(&mut current_key, transition, c) { break }
-                }
+            if let Some(new_key) = transition_attempt {
+                println!("State transition made - continuing...");
+                current_key = new_key; // change state
             }
-            else { panic!("Transitioned to undefined state key: {:?}", current_key); }
-        }
-        // Exited while loop which means that either all possible state transitions
-        // have been made or the end of the input stream has been reached.
+            else {
+                println!("State transition could not be made - attempting to parse lexeme...");
+                return Some(attempt_token_parse(lexeme, state));
+            }
 
-        if lexeme.is_empty() {
-            println!("Reached end of current input stream.");
-            None
+            lexeme.push(chr);
+            println!("Current lexeme: {}", lexeme);
         }
-        else {
-            let final_state = self.states.get(&current_key).unwrap();
-            Some(attempt_token_parse(lexeme, final_state))
+
+        if !lexeme.is_empty() {
+            println!("Reached end of input stream - attempting to parse lexeme...");
+            Some(attempt_token_parse(lexeme, self.get_state(current_key)))
         }
+        else { None }
     }
 }
 
 /// Attempt to transition state (by modifying the passed mutable reference to the
 /// current state key) based on the given transition and input character.
 /// Returns true should a transition (to a different state or to self) be made.
-fn attempt_state_transition<Key: Copy + Debug>(state_key: &mut Key, transition : &Transition<Key>, c: char) -> bool {
-    let should_transition = match transition.match_by {
-        Match::ByChar(expected) => { c == expected },
-        Match::ByFunction(func) => { func(&c) }
-    };
+fn attempt_state_transition<Key: Copy + Debug>(current_key: Key, transitions : &Vec<Transition<Key>>, chr: char) -> Option<Key> {
+    for transition in transitions {
+        let should_transition = match transition.match_by {
+            Match::ByChar(expected) => { chr == expected }
+            Match::ByFunction(func) => { func(&chr) }
+        };
 
-    if should_transition {
-        println!("Found appropriate transition for character: {}", c);
+        if should_transition {
+            println!("Found appropriate transition for character: {}", chr);
 
-        match &transition.to {
-            Dest::To(new_key) => {
-                println!("Transitioning state from {:?} to {:?}...", state_key, new_key);
-                *state_key = *new_key;
+            return match &transition.to {
+                Dest::To(new_key) => {
+                    println!("Transitioning state from {:?} to {:?}...", current_key, new_key);
+                    Some(*new_key) // To new state...
+                }
+
+                Dest::ToSelf => {
+                    println!("Remaining in current state {:?}...", current_key);
+                    Some(current_key) // To same state...
+                }
             }
-
-            Dest::ToSelf => { println!("Remaining in current state {:?}...", state_key); }
         }
     }
-
-    should_transition
+    None // No transitions could be made...
 }
 
 /// Attempt to convert a lexeme into a token, assuming a given lexeme and final
 /// lexer state (no more possible transitions could be made).
 fn attempt_token_parse<Key, Token: Clone + Debug>(lexeme: String, final_state: &State<Key, Token>) -> LexResult<Token> {
     let potential_tok = match &final_state.parse {
-        Parse::To(t) => { Some(t.clone()) },
+        Parse::To(t) => { Some(t.clone()) }
         Parse::ByFunction(func) => { Some(func(&lexeme)) }
         Parse::Invalid => { None }
     };
 
     match potential_tok {
         Some(tok) => {
-            println!("Lexeme parsed to token: {:?}", tok);
+            println!("Lexeme parsed to token: {:?}\n", tok);
             LexResult::Success(tok, lexeme)
         }
         None => {
-            println!("Finished in state which cannot be exited from!");
+            println!("Lexeme could not be parsed to token: {}\n", lexeme);
             LexResult::Failure(lexeme)
         }
     }
