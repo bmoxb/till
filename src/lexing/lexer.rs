@@ -23,6 +23,7 @@ pub struct Lexer<'a, Key: Copy, Token> {
 }
 
 impl<Key: Copy, Token> Lexer<'_, Key, Token> {
+    /// Create a new lexer with it's own unique set of states.
     pub fn new(states: States<Key, Token>, initial_state_key: Key) -> Lexer<Key, Token> {
         Lexer {
             reader: None,
@@ -31,15 +32,27 @@ impl<Key: Copy, Token> Lexer<'_, Key, Token> {
         }
     }
 
-    pub fn set_reader(&mut self, reader: Box<dyn io::Read>) {
+    /// Set the input stream that the lexer will read from.
+    pub fn input_reader(&mut self, reader: Box<dyn io::Read>) {
         self.reader = Some(reader);
     }
 
-    pub fn set_reader_by_file(&mut self, f: fs::File) {
+    /// Create a buffered reader using a given file and set it is as the lexer
+    /// input stream.
+    pub fn input_file(&mut self, f: fs::File) {
         let buf_reader = io::BufReader::new(f);
-        self.reader = Some(Box::new(buf_reader));
+        self.input_reader(Box::new(buf_reader));
     }
 
+    /// Convert a given static &str to bytes to be used as the input stream.
+    /// This is to be used primarily in tests.
+    pub fn input_str(&mut self, s: &'static str) {
+        self.input_reader(Box::new(s.as_bytes()));
+    }
+
+    /// Read the next character from the current input stream. Will return None
+    /// should no input stream by set or if the end of that stream has been
+    /// reached or cannot be read from.
     fn next_char(&mut self) -> Option<char> {
         match &mut self.reader {
             Some(reader) => {
@@ -57,6 +70,7 @@ impl<Key: Copy, Token> Lexer<'_, Key, Token> {
 impl<Key: Copy + Eq + Hash + Debug, Token: Debug> Iterator for Lexer<'_, Key, Token> {
     type Item = Token;
 
+    /// Return the next token in the current input stream.
     fn next(&mut self) -> Option<Token> {
         let mut current_key = self.initial_state_key;
         let mut lexeme = String::new();
@@ -110,7 +124,7 @@ mod tests {
     #[test]
     fn test_streaming() {
         let mut lex = Lexer::<Key, Token>::new(HashMap::new(), Key::Initial);
-        lex.set_reader(Box::new("xy".as_bytes()));
+        lex.input_str("xy");
         
         assert_eq!(lex.next_char(), Some('x'));
         assert_eq!(lex.next_char(), Some('y'));

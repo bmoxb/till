@@ -114,10 +114,10 @@ mod tests {
     fn test_number_literal() {
         let mut lxr = new_lexer();
         
-        lxr.set_reader(Box::new("12.3".as_bytes()));
+        lxr.input_str("12.3");
         assert_eq!(lxr.next(), Some(Token::NumberLiteral(12.3)));
 
-        lxr.set_reader(Box::new("32.".as_bytes()));
+        lxr.input_str("12.");
         assert_eq!(lxr.next(), None);
     }
 }
