@@ -117,6 +117,8 @@ where Key: Copy + Eq + Hash + Debug,
     type Item = LexResult<Token>;
 
     /// Return the next token and lexeme in the current input stream.
+    /// Returns `None` should the end of the current input stream have been
+    /// reached.
     fn next(&mut self) -> Option<Self::Item> {
         let mut current_key = self.initial_state_key;
         let mut lexeme = String::new(); // each char read from stream is appended to this string
@@ -124,8 +126,6 @@ where Key: Copy + Eq + Hash + Debug,
         while let Some(chr) = self.next_char() {
             let state = self.get_state(current_key);
             println!("Current state: {:?}", current_key);
-
-            println!("Read character from stream: {}", chr);
 
             let transition_attempt = attempt_state_transition(current_key, &state.transitions, chr);
 
@@ -150,10 +150,12 @@ where Key: Copy + Eq + Hash + Debug,
     }
 }
 
-/// Attempt to transition state (by modifying the passed mutable reference to the
-/// current state key) based on the given transition and input character.
-/// Returns true should a transition (to a different state or to self) be made.
-fn attempt_state_transition<Key: Copy + Debug>(current_key: Key, transitions : &Vec<Transition<Key>>, chr: char) -> Option<Key> {
+/// Attempt to transition state given a vector of transitions and the current
+/// input character. Will return `Some` holding the next state key should an
+/// appropriate transition be found (whether to the current state or elsewhere).
+/// `None` is returned when no appropriate transitions could be found.
+fn attempt_state_transition<Key>(current_key: Key, transitions : &Vec<Transition<Key>>, chr: char) -> Option<Key>
+where Key: Copy + Debug {
     for transition in transitions {
         let should_transition = match transition.match_by {
             Match::ByChar(expected) => { chr == expected }
@@ -176,12 +178,16 @@ fn attempt_state_transition<Key: Copy + Debug>(current_key: Key, transitions : &
             }
         }
     }
-    None // No transitions could be made...
+
+    println!("No transitions found for character: {}", chr);
+    None
 }
 
 /// Attempt to convert a lexeme into a token, assuming a given lexeme and final
-/// lexer state (no more possible transitions could be made).
-fn attempt_token_parse<Key, Token: Clone + Debug>(lexeme: String, final_state: &State<Key, Token>) -> LexResult<Token> {
+/// lexer state (no more possible transitions could be made or reached end of
+/// input stream).
+fn attempt_token_parse<Key, Token>(lexeme: String, final_state: &State<Key, Token>) -> LexResult<Token>
+where Token: Clone + Debug{
     let potential_tok = match &final_state.parse {
         Parse::To(t) => { Some(t.clone()) }
         Parse::ByFunction(func) => { Some(func(&lexeme)) }
@@ -194,7 +200,7 @@ fn attempt_token_parse<Key, Token: Clone + Debug>(lexeme: String, final_state: &
             LexResult::Success(tok, lexeme)
         }
         None => {
-            println!("Lexeme could not be parsed to token: {}\n", lexeme);
+            println!("Could not parse to token from lexeme: {}\n", lexeme);
             LexResult::Failure(lexeme)
         }
     }
