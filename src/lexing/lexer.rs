@@ -8,8 +8,14 @@ use std::{ io, fs, collections::HashMap, hash::Hash, fmt::Debug };
 /// unable to transition off from, it is evident that the input stream is invalid
 /// for the given lexer states and a lexical error has occured.
 pub struct State<'a, Key, Token> {
-    pub parse_fn: Option<&'a dyn Fn(&str) -> Token>,
+    pub parse: Parse<'a, Token>,
     pub transitions: Vec<Transition<'a, Key>>
+}
+
+pub enum Parse<'a, Token> {
+    To(Token), // For tokens that require no data from the lexeme (e.g. `IfKeyword`).
+    ByFunction(&'a dyn Fn(&str) -> Token), // For tokens with data extracted from lexeme (e.g. `NumberLiteral`, `Identifier`).
+    Invalid // For transitional states that do not produce a token (e.g. `PotentialReal`).
 }
 
 /// Describes a transition from one state to another (or itself). The lexer
@@ -18,8 +24,13 @@ pub struct State<'a, Key, Token> {
 /// Should the matching funtion return turn true, the lexer will transition
 /// states as specified.
 pub struct Transition<'a, Key> {
-    pub match_fn: &'a dyn Fn(&char) -> bool,
+    pub match_by: Match<'a>,
     pub to: Dest<Key>
+}
+
+pub enum Match<'a> {
+    ByChar(char),
+    ByFunction(&'a dyn Fn(&char) -> bool)
 }
 
 /// Indicates how the lexer should transition state - either to remain on the
@@ -74,6 +85,10 @@ impl<Key: Copy, Token> Lexer<'_, Key, Token> {
         self.input_reader(Box::new(s.as_bytes()));
     }
 
+    /// Indicate character(s) which, given no valid transition is found, can be
+    /// skipped by the lexer.
+    pub fn ignore_match(&mut self) {}
+
     /// Read the next character from the current input stream. Will return None
     /// should no input stream by set or if the end of that stream has been
     /// reached or cannot be read from.
@@ -91,7 +106,7 @@ impl<Key: Copy, Token> Lexer<'_, Key, Token> {
     }
 }
 
-impl<Key: Copy + Eq + Hash + Debug, Token: Debug> Iterator for Lexer<'_, Key, Token> {
+impl<Key: Copy + Eq + Hash + Debug, Token: Clone + Debug> Iterator for Lexer<'_, Key, Token> {
     type Item = LexResult<Token>;
 
     /// Return the next token and lexeme in the current input stream.
@@ -107,39 +122,67 @@ impl<Key: Copy + Eq + Hash + Debug, Token: Debug> Iterator for Lexer<'_, Key, To
                 println!("Current state: {:?}", current_key);
 
                 for transition in &state.transitions {
-                    if (transition.match_fn)(&c) {
-                        println!("Found appropriate transition for character: {}", c);
-
-                        match transition.to {
-                            Dest::To(new_key) => {
-                                println!("Transitioning state from {:?} to {:?}...", current_key, new_key);
-                                current_key = new_key;
-                            }
-
-                            Dest::ToSelf => { println!("Remaining in current state {:?}...", current_key); }
-                        }
-                        break; // If a match is found for this transition, there's
-                               // reason to check remaining transitions also.
-                    }
+                    if attempt_state_transition(&mut current_key, transition, c) { break }
                 }
             }
             else { panic!("Transitioned to undefined state key: {:?}", current_key); }
         }
+        // Exited while loop which means that either all possible state transitions
+        // have been made or the end of the input stream has been reached.
 
-        if let Some(parse_fn) = self.states.get(&current_key).unwrap().parse_fn {
-            let tok = parse_fn(&lexeme);
-            println!("Lexeme parsed to token: {:?}", tok);
-            Some(LexResult::Success(tok, lexeme))
+        if lexeme.is_empty() {
+            println!("Reached end of current input stream.");
+            None
         }
         else {
-            if !lexeme.is_empty() { 
-                println!("Finished in state which cannot be exited from!");
-                Some(LexResult::Failure(lexeme))
+            let final_state = self.states.get(&current_key).unwrap();
+            Some(attempt_token_parse(lexeme, final_state))
+        }
+    }
+}
+
+/// Attempt to transition state (by modifying the passed mutable reference to the
+/// current state key) based on the given transition and input character.
+/// Returns true should a transition (to a different state or to self) be made.
+fn attempt_state_transition<Key: Copy + Debug>(state_key: &mut Key, transition : &Transition<Key>, c: char) -> bool {
+    let should_transition = match transition.match_by {
+        Match::ByChar(expected) => { c == expected },
+        Match::ByFunction(func) => { func(&c) }
+    };
+
+    if should_transition {
+        println!("Found appropriate transition for character: {}", c);
+
+        match &transition.to {
+            Dest::To(new_key) => {
+                println!("Transitioning state from {:?} to {:?}...", state_key, new_key);
+                *state_key = *new_key;
             }
-            else {
-                println!("Reached end of current input stream.");
-                None
-            }
+
+            Dest::ToSelf => { println!("Remaining in current state {:?}...", state_key); }
+        }
+    }
+
+    should_transition
+}
+
+/// Attempt to convert a lexeme into a token, assuming a given lexeme and final
+/// lexer state (no more possible transitions could be made).
+fn attempt_token_parse<Key, Token: Clone + Debug>(lexeme: String, final_state: &State<Key, Token>) -> LexResult<Token> {
+    let potential_tok = match &final_state.parse {
+        Parse::To(t) => { Some(t.clone()) },
+        Parse::ByFunction(func) => { Some(func(&lexeme)) }
+        Parse::Invalid => { None }
+    };
+
+    match potential_tok {
+        Some(tok) => {
+            println!("Lexeme parsed to token: {:?}", tok);
+            LexResult::Success(tok, lexeme)
+        }
+        None => {
+            println!("Finished in state which cannot be exited from!");
+            LexResult::Failure(lexeme)
         }
     }
 }

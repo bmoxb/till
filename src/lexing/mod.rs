@@ -2,7 +2,7 @@ mod lexer;
 
 use std::collections::HashMap;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Token {
     // Keywords:
     IfKeyword, // if
@@ -17,8 +17,8 @@ pub enum Token {
     BracketSquareOpen, // [
     BracketSquareClose, // ]
     // Identifiers:
-    Identifier(String),
-    TypeIdentifier(String),
+    Identifier(Box<String>),
+    TypeIdentifier(Box<String>),
     // Literals:
     NumberLiteral(f64),
     StringLiteral(String),
@@ -49,10 +49,10 @@ pub fn new_lexer() -> lexer::Lexer<'static, StateKey, Token> {
     states.insert(
         StateKey::Initial,
         lexer::State {
-            parse_fn: None, // cannot exit initial state
+            parse: lexer::Parse::Invalid, // cannot exit initial state
             transitions: vec![
                 lexer::Transition {
-                    match_fn: &match_digit,
+                    match_by: lexer::Match::ByFunction(&match_digit),
                     to: lexer::Dest::To(StateKey::Integer)
                 }
             ]
@@ -62,14 +62,14 @@ pub fn new_lexer() -> lexer::Lexer<'static, StateKey, Token> {
     states.insert(
         StateKey::Integer,
         lexer::State {
-            parse_fn: Some(&parse_number_literal),
+            parse: lexer::Parse::ByFunction(&parse_number_literal),
             transitions: vec![
                 lexer::Transition {
-                    match_fn: &|c| c == &'.',
+                    match_by: lexer::Match::ByChar('.'),
                     to: lexer::Dest::To(StateKey::PotentialReal)
                 },
                 lexer::Transition {
-                    match_fn: &match_digit,
+                    match_by: lexer::Match::ByFunction(&match_digit),
                     to: lexer::Dest::ToSelf
                 }
             ]
@@ -79,10 +79,10 @@ pub fn new_lexer() -> lexer::Lexer<'static, StateKey, Token> {
     states.insert(
         StateKey::PotentialReal,
         lexer::State {
-            parse_fn: None, // Digit(s), decimal point, without further digit(s) in invalid
+            parse: lexer::Parse::Invalid, // Digit(s), decimal point, without further digit(s) in invalid
             transitions: vec![
                 lexer::Transition {
-                    match_fn: &match_digit,
+                    match_by: lexer::Match::ByFunction(&match_digit),
                     to: lexer::Dest::To(StateKey::Real)
                 }
             ]
@@ -92,10 +92,10 @@ pub fn new_lexer() -> lexer::Lexer<'static, StateKey, Token> {
     states.insert(
         StateKey::Real,
         lexer::State {
-            parse_fn: Some(&parse_number_literal),
+            parse: lexer::Parse::ByFunction(&parse_number_literal),
             transitions: vec![
                 lexer::Transition {
-                    match_fn: &match_digit,
+                    match_by: lexer::Match::ByFunction(&match_digit),
                     to: lexer::Dest::ToSelf
                 }
             ]
