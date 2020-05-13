@@ -54,28 +54,31 @@ impl<Key: Copy, Token> Lexer<'_, Key, Token> {
     }
 }
 
-impl<Key: Copy + Eq + Hash + Debug, Token> Iterator for Lexer<'_, Key, Token> {
+impl<Key: Copy + Eq + Hash + Debug, Token: Debug> Iterator for Lexer<'_, Key, Token> {
     type Item = Token;
 
     fn next(&mut self) -> Option<Token> {
         let mut current_key = self.initial_state_key;
-        let lexeme = String::new();
+        let mut lexeme = String::new();
 
         while let Some(c) = self.next_char() {
-            println!("Next character in input stream: {}", c);
+            lexeme.push(c);
+            println!("Current lexeme: {}", lexeme);
 
             if let Some(state) = self.states.get(&current_key) {
                 println!("Current state: {:?}", current_key);
 
                 for transition in &state.transitions {
                     if (transition.match_fn)(&c) {
+                        println!("Found appropriate transition for character: {}", c);
+
                         match transition.to {
                             Dest::To(new_key) => {
                                 println!("Transitioning state from {:?} to {:?}...", current_key, new_key);
                                 current_key = new_key;
                             }
 
-                            Dest::ToSelf => { println!("Transitioning state from {:?} to self...", current_key); }
+                            Dest::ToSelf => { println!("Remaining in current state {:?}...", current_key); }
                         }
                         break;
                     }
@@ -84,7 +87,15 @@ impl<Key: Copy + Eq + Hash + Debug, Token> Iterator for Lexer<'_, Key, Token> {
             else { panic!("Transitioned to undefined state key: {:?}", current_key); }
         }
 
-        None
+        if let Some(parse_fn) = self.states.get(&current_key).unwrap().parse_fn {
+            let tok = parse_fn(&lexeme);
+            println!("Lexeme parsed to token: {:?}", tok);
+            Some(tok)
+        }
+        else {
+            println!("Finished in state which cannot be exited from!");
+            None
+        }
     }
 }
 
@@ -93,12 +104,12 @@ mod tests {
     use super::*;
 
     #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
-    enum Key { First, Second }
-    enum Token { This, That }
+    enum Key { Initial }
+    enum Token {}
 
     #[test]
     fn test_streaming() {
-        let mut lex = Lexer::<Key, Token>::new(HashMap::new(), Key::First);
+        let mut lex = Lexer::<Key, Token>::new(HashMap::new(), Key::Initial);
         lex.set_reader(Box::new("xy".as_bytes()));
         
         assert_eq!(lex.next_char(), Some('x'));

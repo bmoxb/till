@@ -2,6 +2,7 @@ mod lexer;
 
 use std::collections::HashMap;
 
+#[derive(Debug, PartialEq)]
 pub enum Token {
     // Keywords:
     IfKeyword, // if
@@ -32,7 +33,7 @@ pub enum Token {
     Caret // ^
 }
 
-#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum StateKey {
     Initial,
     Integer, PotentialReal, Real
@@ -102,4 +103,21 @@ pub fn new_lexer() -> lexer::Lexer<'static, StateKey, Token> {
     );
     
     lexer::Lexer::new(states, StateKey::Initial)
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_number_literal() {
+        let mut lxr = new_lexer();
+        
+        lxr.set_reader(Box::new("12.3".as_bytes()));
+        assert_eq!(lxr.next(), Some(Token::NumberLiteral(12.3)));
+
+        lxr.set_reader(Box::new("32.".as_bytes()));
+        assert_eq!(lxr.next(), None);
+    }
 }
