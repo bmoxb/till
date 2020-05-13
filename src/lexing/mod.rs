@@ -17,8 +17,8 @@ pub enum Token {
     BracketSquareOpen, // [
     BracketSquareClose, // ]
     // Identifiers:
-    Identifier(Box<String>),
-    TypeIdentifier(Box<String>),
+    Identifier(String),
+    TypeIdentifier(String),
     // Literals:
     NumberLiteral(f64),
     StringLiteral(String),
