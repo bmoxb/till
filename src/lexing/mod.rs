@@ -141,37 +141,39 @@ fn parse_number_literal(s: &str) -> Token { Token::NumberLiteral(s.parse().unwra
 mod tests {
     use super::*;
 
+    fn assert_lexing_success(lxr: &mut lexer::Lexer<StateKey, Token>, tok: Token, lexeme: &str) {
+        assert_eq!(
+            lxr.next(),
+            Some(lexer::LexResult::Success(tok, lexeme.to_string()))
+        )
+    }
+
+    fn assert_lexing_failure(lxr: &mut lexer::Lexer<StateKey, Token>, lexeme: &str) {
+        assert_eq!(
+            lxr.next(),
+            Some(lexer::LexResult::Failure(lexeme.to_string()))
+        )
+    }
+
     #[test]
     fn test_ignored_characters() {
         let mut lxr = new_lexer();
-
         lxr.set_stream_by_str("   5 6.2  ");
-        assert_eq!(
-            lxr.next(),
-            Some(lexer::LexResult::Success(Token::NumberLiteral(5.0), "5".to_string()))
-        );
 
-        assert_eq!(
-            lxr.next(),
-            Some(lexer::LexResult::Success(Token::NumberLiteral(6.2), "6.2".to_string()))
-        );
-
+        assert_lexing_success(&mut lxr, Token::NumberLiteral(5.0), "5");
+        assert_lexing_success(&mut lxr, Token::NumberLiteral(6.2), "6.2");
         assert_eq!(lxr.next(), None); // last 2 spaces are ignored so effectively end of stream
     }
 
     #[test]
     fn test_number_literals() {
         let mut lxr = new_lexer();
-
+        
         lxr.set_stream_by_str("12.3nexttoken");
-        assert_eq!(lxr.next(),
-            Some(lexer::LexResult::Success(Token::NumberLiteral(12.3), "12.3".to_string()))
-        );
+        assert_lexing_success(&mut lxr, Token::NumberLiteral(12.3), "12.3");
 
         lxr.set_stream_by_str("12.");
-        assert_eq!(lxr.next(),
-            Some(lexer::LexResult::Failure("12.".to_string()))
-        );
+        assert_lexing_failure(&mut lxr, "12.");
 
         assert_eq!(lxr.next(), None);
     }
@@ -181,34 +183,20 @@ mod tests {
         let mut lxr = new_lexer();
 
         lxr.set_stream_by_str("someTHIng _with5and6");
-        
+
         let first = "someTHIng";
-        assert_eq!(
-            lxr.next(),
-            Some(lexer::LexResult::Success(Token::Identifier(first.to_string()), first.to_string()))
-        );
+        assert_lexing_success(&mut lxr, Token::Identifier(first.to_string()), first);
 
         let second = "_with5and6";
-        assert_eq!(
-            lxr.next(),
-            Some(lexer::LexResult::Success(Token::Identifier(second.to_string()), second.to_string()))
-        );
+        assert_lexing_success(&mut lxr, Token::Identifier(second.to_string()), second);
     }
 
     #[test]
     fn test_keywords() {
         let mut lxr = new_lexer();
+        lxr.set_stream_by_str("if else");
 
-        lxr.set_stream_by_str(" if   else ");
-
-        assert_eq!(
-            lxr.next(),
-            Some(lexer::LexResult::Success(Token::IfKeyword, "if".to_string()))
-        );
-
-        assert_eq!(
-            lxr.next(),
-            Some(lexer::LexResult::Success(Token::ElseKeyword, "else".to_string()))
-        );
+        assert_lexing_success(&mut lxr, Token::IfKeyword, "if");
+        assert_lexing_success(&mut lxr, Token::ElseKeyword, "else");
     }
 }
