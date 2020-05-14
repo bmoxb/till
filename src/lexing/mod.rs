@@ -36,15 +36,14 @@ pub enum Token {
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum StateKey {
     Initial,
-    Integer, PotentialReal, Real
+    Integer, PotentialReal, Real,
+    IdentifierOrKeyword
 }
-
-fn match_digit(c: &char) -> bool { c.is_digit(10) }
-
-fn parse_number_literal(s: &str) -> Token { Token::NumberLiteral(s.parse().unwrap()) }
 
 pub fn new_lexer() -> lexer::Lexer<'static, StateKey, Token> {
     let mut states = HashMap::new();
+
+    /* INITIAL STATE */
 
     states.insert(
         StateKey::Initial,
@@ -54,10 +53,16 @@ pub fn new_lexer() -> lexer::Lexer<'static, StateKey, Token> {
                 lexer::Transition {
                     match_by: lexer::Match::ByFunction(&match_digit),
                     to: lexer::Dest::To(StateKey::Integer)
+                },
+                lexer::Transition {
+                    match_by: lexer::Match::ByFunction(&|c| c.is_ascii_lowercase() || *c == '_'),
+                    to: lexer::Dest::To(StateKey::IdentifierOrKeyword)
                 }
             ]
         }
     );
+
+    /* NUMBER LITERALS */
 
     states.insert(
         StateKey::Integer,
@@ -102,10 +107,34 @@ pub fn new_lexer() -> lexer::Lexer<'static, StateKey, Token> {
         }
     );
 
-    let ignore = vec![' ']; // spaces can be ignored.
+    /* KEYWORDS & IDENTIFIERS */
+
+    states.insert(
+        StateKey::IdentifierOrKeyword,
+        lexer::State {
+            parse: lexer::Parse::ByFunction(&|lexeme| {
+                match lexeme {
+                    "if" => Token::IfKeyword,
+                    "else" => Token::ElseKeyword,
+                    x => Token::Identifier(x.to_string())
+                }
+            }),
+            transitions: vec![
+                lexer::Transition {
+                    match_by: lexer::Match::ByFunction(&|c| c.is_ascii_alphanumeric()),
+                    to: lexer::Dest::ToSelf
+                }
+            ]
+        }
+    );
+
+    let ignore = vec![' ']; // spaces can be ignored when in initial state
     
     lexer::Lexer::new(states, StateKey::Initial, ignore)
 }
+
+fn match_digit(c: &char) -> bool { c.is_digit(10) }
+fn parse_number_literal(s: &str) -> Token { Token::NumberLiteral(s.parse().unwrap()) }
 
 
 #[cfg(test)]
@@ -131,7 +160,7 @@ mod tests {
     }
 
     #[test]
-    fn test_number_literal() {
+    fn test_number_literals() {
         let mut lxr = new_lexer();
 
         lxr.set_stream_by_str("12.3nexttoken");
@@ -145,5 +174,41 @@ mod tests {
         );
 
         assert_eq!(lxr.next(), None);
+    }
+
+    #[test]
+    fn test_identifiers() {
+        let mut lxr = new_lexer();
+
+        lxr.set_stream_by_str("someTHIng _with5and6");
+        
+        let first = "someTHIng";
+        assert_eq!(
+            lxr.next(),
+            Some(lexer::LexResult::Success(Token::Identifier(first.to_string()), first.to_string()))
+        );
+
+        let second = "_with5and6";
+        assert_eq!(
+            lxr.next(),
+            Some(lexer::LexResult::Success(Token::Identifier(second.to_string()), second.to_string()))
+        );
+    }
+
+    #[test]
+    fn test_keywords() {
+        let mut lxr = new_lexer();
+
+        lxr.set_stream_by_str(" if   else ");
+
+        assert_eq!(
+            lxr.next(),
+            Some(lexer::LexResult::Success(Token::IfKeyword, "if".to_string()))
+        );
+
+        assert_eq!(
+            lxr.next(),
+            Some(lexer::LexResult::Success(Token::ElseKeyword, "else".to_string()))
+        );
     }
 }
