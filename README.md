@@ -3,20 +3,9 @@
 ## Checklist
 
 * [ ] Lexer
+  * [x] Read character-by-character input from a stream
+  * [x] Allow for the specification of states and transitions between them
+  * [ ] Define all states and transitions required for interpreting TILL
+  * [ ] Return line and character position alongside token and lexeme
 * [ ] Parser
 * [ ] Executor
-
-## Language Features
-
-### Statements
-
-* [ ] If-else statement
-* [ ] Define functions
-* [ ] Declare new bindings
-
-### Expressions
-
-* [ ] Number literals
-* [ ] String literals (with escape sequences)
-* [ ] Bindings
-* [ ] Function calls
