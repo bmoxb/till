@@ -116,10 +116,15 @@ mod tests {
     fn test_ignored_characters() {
         let mut lxr = new_lexer();
 
-        lxr.set_stream_by_str("   5  ");
+        lxr.set_stream_by_str("   5 6.2  ");
         assert_eq!(
             lxr.next(),
             Some(lexer::LexResult::Success(Token::NumberLiteral(5.0), "5".to_string()))
+        );
+
+        assert_eq!(
+            lxr.next(),
+            Some(lexer::LexResult::Success(Token::NumberLiteral(6.2), "6.2".to_string()))
         );
 
         assert_eq!(lxr.next(), None); // last 2 spaces are ignored so effectively end of stream

@@ -112,8 +112,8 @@ where Key: Copy + Eq + Hash + Debug,
             else {
                 println!("No appropriate transitions from this state found!");
 
-                if self.ignored.contains(&chr) {
-                    println!("Character can be ignored - continuing...");
+                if self.ignored.contains(&chr) && current_key == self.initial_state_key {
+                    println!("As currently in the initial state, character can be ignored - continuing...");
                     stream.next(); // advance the stream but don't add ignored character to lexeme
                 }
                 else {
