@@ -55,17 +55,19 @@ pub enum LexResult<Token> {
 pub struct Lexer<'a, Key: Copy, Token> {
     stream: Option<CharStream>,
     states: States<'a, Key, Token>,
-    initial_state_key: Key
+    initial_state_key: Key,
+    ignored: Vec<char>
 }
 
 impl<Key, Token> Lexer<'_, Key, Token>
 where Key: Copy + Eq + Hash + Debug {
     /// Create a new lexer with it's own unique set of states.
-    pub fn new(states: States<Key, Token>, initial_state_key: Key) -> Lexer<Key, Token> {
+    pub fn new(states: States<Key, Token>, initial_state_key: Key, ignored: Vec<char>) -> Lexer<Key, Token> {
         Lexer {
             stream: None,
             states,
-            initial_state_key
+            initial_state_key,
+            ignored
         }
     }
 
@@ -73,9 +75,10 @@ where Key: Copy + Eq + Hash + Debug {
         self.stream = Some(stream)
     }
 
-    /// Indicate character(s) which, given no valid transition is found, can be
-    /// skipped by the lexer.
-    pub fn ignore_match(&mut self) {}
+    /// Convience method, used primarily in tests.
+    pub fn set_stream_by_str(&mut self, s: &'static str) {
+        self.set_stream(CharStream::from_string(s.to_string()))
+    }
 }
 
 impl<Key, Token> Iterator for Lexer<'_, Key, Token>
@@ -107,8 +110,16 @@ where Key: Copy + Eq + Hash + Debug,
                 println!("State transitioned made - continuing...");
             }
             else {
-                println!("No valid transitions from this state found - breaking...");
-                break;
+                println!("No appropriate transitions from this state found!");
+
+                if self.ignored.contains(&chr) {
+                    println!("Character can be ignored - continuing...");
+                    stream.next(); // advance the stream but don't add ignored character to lexeme
+                }
+                else {
+                    println!("Character cannot be ignored - breaking...");
+                    break;
+                }
             }
         }
 

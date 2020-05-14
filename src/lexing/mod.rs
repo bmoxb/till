@@ -101,31 +101,44 @@ pub fn new_lexer() -> lexer::Lexer<'static, StateKey, Token> {
             ]
         }
     );
+
+    let ignore = vec![' ']; // spaces can be ignored.
     
-    lexer::Lexer::new(states, StateKey::Initial)
+    lexer::Lexer::new(states, StateKey::Initial, ignore)
 }
 
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use char_stream::CharStream;
+
+    #[test]
+    fn test_ignored_characters() {
+        let mut lxr = new_lexer();
+
+        lxr.set_stream_by_str("   5  ");
+        assert_eq!(
+            lxr.next(),
+            Some(lexer::LexResult::Success(Token::NumberLiteral(5.0), "5".to_string()))
+        );
+
+        assert_eq!(lxr.next(), None); // last 2 spaces are ignored so effectively end of stream
+    }
 
     #[test]
     fn test_number_literal() {
         let mut lxr = new_lexer();
 
-        lxr.set_stream(CharStream::from_string("12.3nexttoken".to_string()));
-
+        lxr.set_stream_by_str("12.3nexttoken");
         assert_eq!(lxr.next(),
             Some(lexer::LexResult::Success(Token::NumberLiteral(12.3), "12.3".to_string()))
         );
 
-        let failure = "12.".to_string();
-        lxr.set_stream(CharStream::from_string(failure.clone()));
-
+        lxr.set_stream_by_str("12.");
         assert_eq!(lxr.next(),
-            Some(lexer::LexResult::Failure(failure))
+            Some(lexer::LexResult::Failure("12.".to_string()))
         );
+
+        assert_eq!(lxr.next(), None);
     }
 }
