@@ -109,26 +109,23 @@ pub fn new_lexer() -> lexer::Lexer<'static, StateKey, Token> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use char_stream::CharStream;
 
     #[test]
     fn test_number_literal() {
         let mut lxr = new_lexer();
-        
-        lxr.input_str("12.3");
+
+        lxr.set_stream(CharStream::from_string("12.3nexttoken".to_string()));
+
         assert_eq!(lxr.next(),
             Some(lexer::LexResult::Success(Token::NumberLiteral(12.3), "12.3".to_string()))
         );
 
-        assert_eq!(lxr.next(), None); // end of stream
+        let failure = "12.".to_string();
+        lxr.set_stream(CharStream::from_string(failure.clone()));
 
-        lxr.input_str("12.");
         assert_eq!(lxr.next(),
-            Some(lexer::LexResult::Failure("12.".to_string()))
-        );
-
-        lxr.input_str("10abc");
-        assert_eq!(lxr.next(),
-            Some(lexer::LexResult::Success(Token::NumberLiteral(10.0), "10".to_string()))
+            Some(lexer::LexResult::Failure(failure))
         );
     }
 }

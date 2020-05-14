@@ -1,4 +1,5 @@
 use std::{ io, fs, collections::HashMap, hash::Hash, fmt::Debug };
+use char_stream::CharStream;
 
 /// Describes a lexing state. Can include any number of transitions to other
 /// states. When the lexer finds no appropriate transitions from this state,
@@ -52,7 +53,7 @@ pub enum LexResult<Token> {
 }
 
 pub struct Lexer<'a, Key: Copy, Token> {
-    reader: Option<Box<dyn io::Read>>,
+    stream: Option<CharStream>,
     states: States<'a, Key, Token>,
     initial_state_key: Key
 }
@@ -62,53 +63,19 @@ where Key: Copy + Eq + Hash + Debug {
     /// Create a new lexer with it's own unique set of states.
     pub fn new(states: States<Key, Token>, initial_state_key: Key) -> Lexer<Key, Token> {
         Lexer {
-            reader: None,
+            stream: None,
             states,
             initial_state_key
         }
     }
 
-    /// Set the input stream that the lexer will read from.
-    pub fn input_reader(&mut self, reader: Box<dyn io::Read>) {
-        self.reader = Some(reader);
-    }
-
-    /// Create a buffered reader using a given file and set it is as the lexer
-    /// input stream.
-    pub fn input_file(&mut self, f: fs::File) {
-        let buf_reader = io::BufReader::new(f);
-        self.input_reader(Box::new(buf_reader));
-    }
-
-    /// Convert a given static &str to bytes to be used as the input stream.
-    /// This is to be used primarily in tests.
-    pub fn input_str(&mut self, s: &'static str) {
-        self.input_reader(Box::new(s.as_bytes()));
+    pub fn set_stream(&mut self, stream: CharStream) {
+        self.stream = Some(stream)
     }
 
     /// Indicate character(s) which, given no valid transition is found, can be
     /// skipped by the lexer.
     pub fn ignore_match(&mut self) {}
-
-    /// Read the next character from the current input stream. Will return None
-    /// should no input stream by set or if the end of that stream has been
-    /// reached or cannot be read from.
-    fn next_char(&mut self) -> Option<char> {
-        match &mut self.reader {
-            Some(reader) => {
-                let mut buf = [0];
-                reader.read(&mut buf).ok()?;
-                
-                let c = buf[0] as char;
-                if c != '\u{0}' { Some(c) } else { None }
-            },
-            None => None
-        }
-    }
-
-    fn get_state(&self, key: Key) -> &State<Key, Token> {
-        self.states.get(&key).expect(&format!("Lexer has no state defined for key: {:?}", key))
-    }
 }
 
 impl<Key, Token> Iterator for Lexer<'_, Key, Token>
@@ -120,34 +87,42 @@ where Key: Copy + Eq + Hash + Debug,
     /// Returns `None` should the end of the current input stream have been
     /// reached.
     fn next(&mut self) -> Option<Self::Item> {
+        let stream = self.stream.as_mut().expect("Cannot perform lexical analysis when no input is set!");
+
         let mut current_key = self.initial_state_key;
-        let mut lexeme = String::new(); // each char read from stream is appended to this string
-        
-        while let Some(chr) = self.next_char() {
-            let state = self.get_state(current_key);
+        let mut lexeme = String::new();
+
+        while let Some(chr) = stream.peek() {
+            println!("Peeking character: '{}'", chr);
+            
+            let state = get_state(&self.states, current_key);
             println!("Current state: {:?}", current_key);
 
-            let transition_attempt = attempt_state_transition(current_key, &state.transitions, chr);
+            if let Some(new_key) = attempt_state_transition(current_key, &state.transitions, chr) {
+                lexeme.push(chr); // confirmed the character is part of the current lexeme
+                stream.next(); // advance the stream
+                println!("Character added to lexeme: \"{}\"", lexeme);
 
-            if let Some(new_key) = transition_attempt {
-                println!("State transition made - continuing...");
-                current_key = new_key; // change state
+                current_key = new_key;
+                println!("State transitioned made - continuing...");
             }
             else {
-                println!("State transition could not be made - attempting to parse lexeme...");
-                return Some(attempt_token_parse(lexeme, state));
+                println!("No valid transitions from this state found - breaking...");
+                break;
             }
-
-            lexeme.push(chr);
-            println!("Current lexeme: {}", lexeme);
         }
 
         if !lexeme.is_empty() {
-            println!("Reached end of input stream - attempting to parse lexeme...");
-            Some(attempt_token_parse(lexeme, self.get_state(current_key)))
+            println!("Attempting to parse lexeme...");
+            Some(attempt_token_parse(lexeme, get_state(&self.states, current_key)))
         }
-        else { None }
+        else { None } // Nothing added to lexeme - assume stream had already reached end
     }
+}
+
+fn get_state<'a, Key, Token>(states: &'a States<Key, Token>, key: Key) -> &'a State<'a, Key, Token>
+where Key: Eq + Hash + Debug, {
+    states.get(&key).expect(&format!("Lexer transitioned into an undefined state: {:?}", key))
 }
 
 /// Attempt to transition state given a vector of transitions and the current
@@ -163,8 +138,6 @@ where Key: Copy + Debug {
         };
 
         if should_transition {
-            println!("Found appropriate transition for character: {}", chr);
-
             return match &transition.to {
                 Dest::To(new_key) => {
                     println!("Transitioning state from {:?} to {:?}...", current_key, new_key);
@@ -179,8 +152,7 @@ where Key: Copy + Debug {
         }
     }
 
-    println!("No transitions found for character: {}", chr);
-    None
+    None // no appropriate transition found (to self or otherwise) so return nothing
 }
 
 /// Attempt to convert a lexeme into a token, assuming a given lexeme and final
@@ -200,27 +172,8 @@ where Token: Clone + Debug{
             LexResult::Success(tok, lexeme)
         }
         None => {
-            println!("Could not parse to token from lexeme: {}\n", lexeme);
+            println!("Could not parse to token from lexeme: \"{}\"\n", lexeme);
             LexResult::Failure(lexeme)
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
-    enum Key { Initial }
-    enum Token {}
-
-    #[test]
-    fn test_streaming() {
-        let mut lex = Lexer::<Key, Token>::new(HashMap::new(), Key::Initial);
-        lex.input_str("xy");
-        
-        assert_eq!(lex.next_char(), Some('x'));
-        assert_eq!(lex.next_char(), Some('y'));
-        assert_eq!(lex.next_char(), None);
     }
 }

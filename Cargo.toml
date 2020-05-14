@@ -5,3 +5,4 @@ authors = ["WiredSound <maxoblack@yahoo.com>"]
 edition = "2018"
 
 [dependencies]
+char_stream = "0.1.8"
