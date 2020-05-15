@@ -29,15 +29,18 @@ pub struct Transition<'a, Key> {
     pub to: Dest<Key>
 }
 
+/// Criteria by which it is decided whether the lexer should transition state
+/// given the most recent character read from stream.
 pub enum Match<'a> {
-    ByChar(char),
-    ByFunction(&'a dyn Fn(&char) -> bool)
+    ByChar(char), // Match by a single character.
+    ByFunction(&'a dyn Fn(&char) -> bool) // Provide read charater to function which will return true if transition should be made.
 }
 
 /// Indicates how the lexer should transition state - either to remain on the
 /// current state or to transition to a state with a given key.
 pub enum Dest<Key> {
-    ToSelf, To(Key)
+    ToSelf, // For remaining on the same state.
+    To(Key) // For transitioning to other states.
 }
 
 /// Type allias for a hash map of state keys to states.
@@ -54,7 +57,6 @@ pub enum LexResult<Token> {
 
 pub struct Lexer<'a, Key: Copy, Token> {
     pub stream: Option<Stream>,
-    
     states: States<'a, Key, Token>,
     initial_state_key: Key,
     ignored: Vec<char>
@@ -94,8 +96,8 @@ where Key: Copy + Eq + Hash + Debug,
             println!("Current state: {:?}", current_key);
 
             if let Some(new_key) = attempt_state_transition(current_key, &state.transitions, chr) {
-                lexeme.push(chr); // confirmed the character is part of the current lexeme
-                stream.advance(); // advance the stream
+                lexeme.push(chr);
+                stream.advance();
                 println!("Character added to lexeme: \"{}\"", lexeme);
 
                 current_key = new_key;
@@ -106,7 +108,7 @@ where Key: Copy + Eq + Hash + Debug,
 
                 if self.ignored.contains(&chr) && current_key == self.initial_state_key {
                     println!("As currently in the initial state, character can be ignored - continuing...");
-                    stream.advance(); // advance the stream but don't add ignored character to lexeme
+                    stream.advance(); // Advance the stream but don't add ignored character to lexeme.
                 }
                 else {
                     println!("Character cannot be ignored - breaking...");
@@ -119,10 +121,11 @@ where Key: Copy + Eq + Hash + Debug,
             println!("Attempting to parse lexeme...");
             Some(attempt_token_parse(lexeme, get_state(&self.states, current_key)))
         }
-        else { None } // Nothing added to lexeme - assume stream had already reached end
+        else { None } // Nothing added to lexeme - assume stream had already reached end.
     }
 }
 
+/// Helper method to fetch and unwrap a `State` reference from a `States` hash map.
 fn get_state<'a, Key, Token>(states: &'a States<Key, Token>, key: Key) -> &'a State<'a, Key, Token>
 where Key: Eq + Hash + Debug, {
     states.get(&key).expect(&format!("Lexer transitioned into an undefined state: {:?}", key))
@@ -155,14 +158,14 @@ where Key: Copy + Debug {
         }
     }
 
-    None // no appropriate transition found (to self or otherwise) so return nothing
+    None // No appropriate transition found (to self or otherwise) so return nothing.
 }
 
 /// Attempt to convert a lexeme into a token, assuming a given lexeme and final
 /// lexer state (no more possible transitions could be made or reached end of
 /// input stream).
 fn attempt_token_parse<Key, Token>(lexeme: String, final_state: &State<Key, Token>) -> LexResult<Token>
-where Token: Clone + Debug{
+where Token: Clone + Debug {
     let potential_tok = match &final_state.parse {
         Parse::To(t) => { Some(t.clone()) }
         Parse::ByFunction(func) => { Some(func(&lexeme)) }
