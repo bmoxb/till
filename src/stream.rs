@@ -46,6 +46,7 @@ impl Stream {
 
 #[cfg(test)]
 mod tests {
+    #[test]
     fn test_position_tracking() {
         let mut s = super::Stream::from_str("a\nb");
         
