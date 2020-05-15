@@ -1,3 +1,4 @@
+mod stream;
 mod lexing;
 mod parser;
 

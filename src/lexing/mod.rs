@@ -1,5 +1,7 @@
 mod lexer;
 
+use super::stream::Stream;
+
 use std::collections::HashMap;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -158,7 +160,7 @@ mod tests {
     #[test]
     fn test_ignored_characters() {
         let mut lxr = new_lexer();
-        lxr.set_stream_by_str("   5 6.2  ");
+        lxr.stream = Some(Stream::from_str("   5 6.2  "));
 
         assert_lexing_success(&mut lxr, Token::NumberLiteral(5.0), "5");
         assert_lexing_success(&mut lxr, Token::NumberLiteral(6.2), "6.2");
@@ -169,10 +171,10 @@ mod tests {
     fn test_number_literals() {
         let mut lxr = new_lexer();
         
-        lxr.set_stream_by_str("12.3nexttoken");
+        lxr.stream = Some(Stream::from_str("12.3nexttoken"));
         assert_lexing_success(&mut lxr, Token::NumberLiteral(12.3), "12.3");
 
-        lxr.set_stream_by_str("12.");
+        lxr.stream = Some(Stream::from_str("12."));
         assert_lexing_failure(&mut lxr, "12.");
 
         assert_eq!(lxr.next(), None);
@@ -182,7 +184,7 @@ mod tests {
     fn test_identifiers() {
         let mut lxr = new_lexer();
 
-        lxr.set_stream_by_str("someTHIng _with5and6");
+        lxr.stream = Some(Stream::from_str("someTHIng _with5and6"));
 
         let first = "someTHIng";
         assert_lexing_success(&mut lxr, Token::Identifier(first.to_string()), first);
@@ -194,7 +196,7 @@ mod tests {
     #[test]
     fn test_keywords() {
         let mut lxr = new_lexer();
-        lxr.set_stream_by_str("if else");
+        lxr.stream = Some(Stream::from_str("if else"));
 
         assert_lexing_success(&mut lxr, Token::IfKeyword, "if");
         assert_lexing_success(&mut lxr, Token::ElseKeyword, "else");

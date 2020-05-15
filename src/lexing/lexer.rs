@@ -1,5 +1,5 @@
-use std::{ io, fs, collections::HashMap, hash::Hash, fmt::Debug };
-use char_stream::CharStream;
+use crate::stream::Stream;
+use std::{ collections::HashMap, hash::Hash, fmt::Debug };
 
 /// Describes a lexing state. Can include any number of transitions to other
 /// states. When the lexer finds no appropriate transitions from this state,
@@ -53,7 +53,8 @@ pub enum LexResult<Token> {
 }
 
 pub struct Lexer<'a, Key: Copy, Token> {
-    stream: Option<CharStream>,
+    pub stream: Option<Stream>,
+    
     states: States<'a, Key, Token>,
     initial_state_key: Key,
     ignored: Vec<char>
@@ -70,15 +71,6 @@ where Key: Copy + Eq + Hash + Debug {
             ignored
         }
     }
-
-    pub fn set_stream(&mut self, stream: CharStream) {
-        self.stream = Some(stream)
-    }
-
-    /// Convience method, used primarily in tests.
-    pub fn set_stream_by_str(&mut self, s: &'static str) {
-        self.set_stream(CharStream::from_string(s.to_string()))
-    }
 }
 
 impl<Key, Token> Iterator for Lexer<'_, Key, Token>
@@ -90,7 +82,7 @@ where Key: Copy + Eq + Hash + Debug,
     /// Returns `None` should the end of the current input stream have been
     /// reached.
     fn next(&mut self) -> Option<Self::Item> {
-        let stream = self.stream.as_mut().expect("Cannot perform lexical analysis when no input is set!");
+        let stream = self.stream.as_mut().expect("Cannot perform lexical analysis when no input stream is set!");
 
         let mut current_key = self.initial_state_key;
         let mut lexeme = String::new();
@@ -103,7 +95,7 @@ where Key: Copy + Eq + Hash + Debug,
 
             if let Some(new_key) = attempt_state_transition(current_key, &state.transitions, chr) {
                 lexeme.push(chr); // confirmed the character is part of the current lexeme
-                stream.next(); // advance the stream
+                stream.advance(); // advance the stream
                 println!("Character added to lexeme: \"{}\"", lexeme);
 
                 current_key = new_key;
@@ -114,7 +106,7 @@ where Key: Copy + Eq + Hash + Debug,
 
                 if self.ignored.contains(&chr) && current_key == self.initial_state_key {
                     println!("As currently in the initial state, character can be ignored - continuing...");
-                    stream.next(); // advance the stream but don't add ignored character to lexeme
+                    stream.advance(); // advance the stream but don't add ignored character to lexeme
                 }
                 else {
                     println!("Character cannot be ignored - breaking...");
