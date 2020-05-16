@@ -90,7 +90,7 @@ where Key: Copy + Eq + Hash + Debug,
         let mut lexeme = String::new();
 
         while let Some(chr) = stream.peek() {
-            println!("Peeking character: '{}'", chr);
+            println!("Peeking character: {:?}", chr);
             
             let state = get_state(&self.states, current_key);
             println!("Current state: {:?}", current_key);
@@ -98,7 +98,7 @@ where Key: Copy + Eq + Hash + Debug,
             if let Some(new_key) = attempt_state_transition(current_key, &state.transitions, chr) {
                 lexeme.push(chr);
                 stream.advance();
-                println!("Character added to lexeme: \"{}\"", lexeme);
+                println!("Character added to lexeme: {:?}", lexeme);
 
                 current_key = new_key;
                 println!("State transitioned made - continuing...");
@@ -178,7 +178,7 @@ where Token: Clone + Debug {
             LexResult::Success(lexeme, pos.clone(), tok)
         }
         None => {
-            println!("Could not parse to token from lexeme: \"{}\"\n", lexeme);
+            println!("Could not parse to token from lexeme: {:?}\n", lexeme);
             LexResult::Failure(lexeme, pos.clone())
         }
     }
