@@ -34,34 +34,40 @@ pub enum Token {
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
-pub enum StateKey {
+pub enum Key {
     Initial,
     Integer, PotentialReal, Real,
     IdentifierOrKeyword,
-    Newline, IncreaseIndent, DecreaseIndent
+    Newlines, Indentation
 }
 
 pub struct Data {
     identation_level: u8
 }
 
-pub fn new_lexer() -> lexer::Lexer<'static, StateKey, Token, Data> {
+pub fn new_lexer() -> lexer::Lexer<'static, Key, Token, Data> {
+    let indentation_chars = vec![' ', '\t'];
+
     let mut states = HashMap::new();
 
     /* INITIAL STATE */
 
     states.insert(
-        StateKey::Initial,
+        Key::Initial,
         lexer::State {
             parse: lexer::Parse::Invalid,
             transitions: vec![
                 lexer::Transition {
                     match_by: lexer::Match::ByFunction(&match_digit),
-                    to: lexer::Dest::To(StateKey::Integer)
+                    to: lexer::Dest::To(Key::Integer)
                 },
                 lexer::Transition {
                     match_by: lexer::Match::ByFunction(&|c| c.is_ascii_lowercase() || *c == '_'),
-                    to: lexer::Dest::To(StateKey::IdentifierOrKeyword)
+                    to: lexer::Dest::To(Key::IdentifierOrKeyword)
+                },
+                lexer::Transition {
+                    match_by: lexer::Match::ByChar('\n'),
+                    to: lexer::Dest::To(Key::Newlines)
                 }
             ]
         }
@@ -70,13 +76,13 @@ pub fn new_lexer() -> lexer::Lexer<'static, StateKey, Token, Data> {
     /* NUMBER LITERALS */
 
     states.insert(
-        StateKey::Integer,
+        Key::Integer,
         lexer::State {
             parse: lexer::Parse::ByFunction(&parse_number_literal),
             transitions: vec![
                 lexer::Transition {
                     match_by: lexer::Match::ByChar('.'),
-                    to: lexer::Dest::To(StateKey::PotentialReal)
+                    to: lexer::Dest::To(Key::PotentialReal)
                 },
                 lexer::Transition {
                     match_by: lexer::Match::ByFunction(&match_digit),
@@ -87,20 +93,20 @@ pub fn new_lexer() -> lexer::Lexer<'static, StateKey, Token, Data> {
     );
 
     states.insert(
-        StateKey::PotentialReal,
+        Key::PotentialReal,
         lexer::State {
             parse: lexer::Parse::Invalid, // Digit(s), decimal point, without further digit(s) is invalid.
             transitions: vec![
                 lexer::Transition {
                     match_by: lexer::Match::ByFunction(&match_digit),
-                    to: lexer::Dest::To(StateKey::Real)
+                    to: lexer::Dest::To(Key::Real)
                 }
             ]
         }
     );
 
     states.insert(
-        StateKey::Real,
+        Key::Real,
         lexer::State {
             parse: lexer::Parse::ByFunction(&parse_number_literal),
             transitions: vec![
@@ -115,7 +121,7 @@ pub fn new_lexer() -> lexer::Lexer<'static, StateKey, Token, Data> {
     /* KEYWORDS & IDENTIFIERS */
 
     states.insert(
-        StateKey::IdentifierOrKeyword,
+        Key::IdentifierOrKeyword,
         lexer::State {
             parse: lexer::Parse::ByFunction(&|_, lexeme| {
                 match lexeme {
@@ -136,16 +142,34 @@ pub fn new_lexer() -> lexer::Lexer<'static, StateKey, Token, Data> {
     /* NEWLINES & INDENTATION */
 
     states.insert(
-        StateKey::Newline,
+        Key::Newlines,
+        lexer::State {
+            parse: lexer::Parse::To(Token::Newlines),
+            transitions: vec![
+                lexer::Transition {
+                    match_by: lexer::Match::ByChar('\n'),
+                    to: lexer::Dest::ToSelf
+                },
+                lexer::Transition {
+                    match_by: lexer::Match::ByChars(indentation_chars.clone()),
+                    to: lexer::Dest::To(Key::Indentation)
+                }
+            ]
+        }
+    );
+
+    states.insert(
+        Key::Indentation,
         lexer::State {
             parse: lexer::Parse::ByFunction(&|data, lexeme| {
                 // Determine change in indentation level and return either Newline,
                 // IncreaseIndent or DecreaseIndent accordingly.
+                // Requires being able to return multiple tokens...
                 Token::Newlines // TODO: temp
             }),
             transitions: vec![
                 lexer::Transition {
-                    match_by: lexer::Match::ByChars(vec!['\n', '\t']),
+                    match_by: lexer::Match::ByChars(indentation_chars),
                     to: lexer::Dest::ToSelf
                 }
             ]
@@ -156,7 +180,7 @@ pub fn new_lexer() -> lexer::Lexer<'static, StateKey, Token, Data> {
 
     let data = Data { identation_level: 0 }; // Begin at identation level zero.
 
-    lexer::Lexer::new(states, StateKey::Initial, data, ignore)
+    lexer::Lexer::new(states, Key::Initial, data, ignore)
 }
 
 fn match_digit(c: &char) -> bool { c.is_digit(10) }
@@ -168,14 +192,14 @@ mod tests {
     use super::*;
     use crate::stream::Stream;
 
-    fn assert_success(lxr: &mut lexer::Lexer<StateKey, Token, Data>, expected_tok: Token) {
+    fn assert_success(lxr: &mut lexer::Lexer<Key, Token, Data>, expected_tok: Token) {
         if let Some(lexer::LexResult::Success(_, _, tok)) = lxr.next() {
             assert_eq!(tok, expected_tok);
         }
         else { panic!("Expected LexResult::Success variant!"); }
     }
 
-    fn assert_failure(lxr: &mut lexer::Lexer<StateKey, Token, Data>, expect_lexeme: &str) {
+    fn assert_failure(lxr: &mut lexer::Lexer<Key, Token, Data>, expect_lexeme: &str) {
         if let Some(lexer::LexResult::Failure(lexeme, _)) = lxr.next() {
             assert_eq!(lexeme, expect_lexeme.to_string());
         }
@@ -221,5 +245,18 @@ mod tests {
 
         assert_success(&mut lxr, Token::IfKeyword);
         assert_success(&mut lxr, Token::ElseKeyword);
+    }
+
+    #[test]
+    fn test_indentation() {
+        let mut lxr = new_lexer();
+        lxr.stream = Some(Stream::from_str("zero\n\tfirst\n\tfirst_again\n\t\tsecond\nzero_again"));
+
+        assert_success(&mut lxr, Token::Identifier("zero".to_string()));
+        assert_success(&mut lxr, Token::Newlines);
+        assert_success(&mut lxr, Token::IndentIncr);
+        assert_success(&mut lxr, Token::Identifier("first".to_string()));
+        assert_success(&mut lxr, Token::Newlines);
+        assert_success(&mut lxr, Token::Identifier("first_again".to_string()));
     }
 }
