@@ -19,7 +19,7 @@ pub enum Token {
     NumberLiteral(f64),
     StringLiteral(String),
     // Other:
-    Newline(usize), // value is indentation level of the new line
+    Newline(usize), // Value is indentation level of the new line.
     Arrow, // ->
     Comma, // ,
     Equals, // =
@@ -34,7 +34,7 @@ pub enum Token {
 pub enum Key {
     Initial,
     Integer, PotentialReal, Real,
-    IdentifierOrKeyword,
+    IdentifierOrKeyword, TypeIdentifier,
     Newline
 }
 
@@ -55,6 +55,10 @@ pub fn new_lexer() -> lexer::Lexer<'static, Key, Token> {
                 lexer::Transition {
                     match_by: lexer::Match::ByFunction(&|c| c.is_ascii_lowercase() || *c == '_'),
                     to: lexer::Dest::To(Key::IdentifierOrKeyword)
+                },
+                lexer::Transition {
+                    match_by: lexer::Match::ByFunction(&|c| c.is_ascii_uppercase()),
+                    to: lexer::Dest::To(Key::TypeIdentifier)
                 },
                 lexer::Transition {
                     match_by: lexer::Match::ByChar('\n'),
@@ -109,7 +113,7 @@ pub fn new_lexer() -> lexer::Lexer<'static, Key, Token> {
         }
     );
 
-    /* KEYWORDS & IDENTIFIERS */
+    /* KEYWORDS, IDENTIFIERS & TYPE IDENTIFIERS */
 
     states.insert(
         Key::IdentifierOrKeyword,
@@ -123,7 +127,22 @@ pub fn new_lexer() -> lexer::Lexer<'static, Key, Token> {
             }),
             transitions: vec![
                 lexer::Transition {
-                    match_by: lexer::Match::ByFunction(&|c| c.is_ascii_alphanumeric() || *c == '_'),
+                    match_by: lexer::Match::ByFunction(&match_alphanumeric_or_underscore),
+                    to: lexer::Dest::ToSelf
+                }
+            ]
+        }
+    );
+
+    states.insert(
+        Key::TypeIdentifier,
+        lexer::State {
+            parse: lexer::Parse::ByFunction(&|lexeme| {
+                Token::TypeIdentifier(lexeme.to_string())
+            }),
+            transitions: vec![
+                lexer::Transition {
+                    match_by: lexer::Match::ByFunction(&match_alphanumeric_or_underscore),
                     to: lexer::Dest::ToSelf
                 }
             ]
@@ -153,6 +172,7 @@ pub fn new_lexer() -> lexer::Lexer<'static, Key, Token> {
 }
 
 fn match_digit(c: &char) -> bool { c.is_digit(10) }
+fn match_alphanumeric_or_underscore(c: &char) -> bool { c.is_ascii_alphanumeric() || *c == '_' }
 fn parse_number_literal(s: &str) -> Token { Token::NumberLiteral(s.parse().unwrap()) }
 
 
@@ -201,10 +221,13 @@ mod tests {
     #[test]
     fn test_identifiers() {
         let mut lxr = new_lexer();
+        lxr.stream = Some(Stream::from_str("someTHIng _with5and6   Type Nice1_"));
 
-        lxr.stream = Some(Stream::from_str("someTHIng _with5and6"));
         assert_success(&mut lxr, Token::Identifier("someTHIng".to_string()));
         assert_success(&mut lxr, Token::Identifier("_with5and6".to_string()));
+        
+        assert_success(&mut lxr, Token::TypeIdentifier("Type".to_string()));
+        assert_success(&mut lxr, Token::TypeIdentifier("Nice1_".to_string()));
     }
 
     #[test]
