@@ -1,25 +1,36 @@
 use std::fs;
 use char_stream::CharStream;
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct Position {
+    pub position: u64,
+    pub line_number: u64,
+    pub line_position: u64
+}
+
+impl Position {
+    fn new() -> Position {
+        Position { position: 0, line_number: 1, line_position: 0 }
+    }
+}
+
 pub struct Stream {
     char_stream: CharStream,
-    position: u64,
-    line_number: u64,
-    line_position: u64
+    pos: Position
 }
 
 impl Stream {
     pub fn from_str(s: &str) -> Stream {
         Stream {
             char_stream: CharStream::from(s),
-            position: 0, line_number: 1, line_position: 0
+            pos: Position::new()
         }
     }
 
     pub fn from_file(f: fs::File) -> Stream {
         Stream {
             char_stream: CharStream::from_file(f),
-            position: 0, line_number: 1, line_position: 0
+            pos: Position::new()
         }
     }
 
@@ -27,21 +38,21 @@ impl Stream {
         self.char_stream.peek()
     }
 
-    pub fn advance(&mut self) {
+    pub fn advance(&mut self) -> &Position {
         if let Some(chr) = self.char_stream.next() {
-            self.position += 1;
+            self.pos.position += 1;
 
             if chr == '\n' {
-                self.line_number += 1;
-                self.line_position = 0;
+                self.pos.line_number += 1;
+                self.pos.line_position = 0;
             }
-            else { self.line_position += 1; }
+            else { self.pos.line_position += 1; }
         }
+
+        &self.pos
     }
 
-    pub fn get_position(&self) -> u64 { self.position }
-    pub fn get_line_number(&self) -> u64 { self.line_number }
-    pub fn get_line_position(&self) -> u64 { self.line_position }
+    pub fn get_pos(&self) -> &Position { &self.pos }
 }
 
 #[cfg(test)]
@@ -50,19 +61,19 @@ mod tests {
     fn test_position_tracking() {
         let mut s = super::Stream::from_str("a\nb");
         
-        s.advance();
-        assert_eq!(s.position, 1);
-        assert_eq!(s.line_number, 1);
-        assert_eq!(s.line_position, 1);
+        let mut pos = s.advance();
+        assert_eq!(pos.position, 1);
+        assert_eq!(pos.line_number, 1);
+        assert_eq!(pos.line_position, 1);
 
-        s.advance();
-        assert_eq!(s.position, 2);
-        assert_eq!(s.line_number, 2);
-        assert_eq!(s.line_position, 0);
+        pos = s.advance();
+        assert_eq!(pos.position, 2);
+        assert_eq!(pos.line_number, 2);
+        assert_eq!(pos.line_position, 0);
 
-        s.advance();
-        assert_eq!(s.position, 3);
-        assert_eq!(s.line_number, 2);
-        assert_eq!(s.line_position, 1);
+        pos = s.advance();
+        assert_eq!(pos.position, 3);
+        assert_eq!(pos.line_number, 2);
+        assert_eq!(pos.line_position, 1);
     }
 }

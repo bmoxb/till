@@ -1,4 +1,4 @@
-use crate::stream::Stream;
+use crate::stream;
 use std::{ collections::HashMap, hash::Hash, fmt::Debug };
 
 /// Describes a lexing state. Can include any number of transitions to other
@@ -51,12 +51,12 @@ pub type States<'a, Key, Token> = HashMap<Key, State<'a, Key, Token>>;
 /// and obviously no token).
 #[derive(Debug, PartialEq)]
 pub enum LexResult<Token> {
-    Success(Token, String),
-    Failure(String)
+    Success(String, stream::Position, Token),
+    Failure(String, stream::Position)
 }
 
 pub struct Lexer<'a, Key: Copy, Token> {
-    pub stream: Option<Stream>,
+    pub stream: Option<stream::Stream>,
     states: States<'a, Key, Token>,
     initial_state_key: Key,
     ignored: Vec<char>
@@ -119,7 +119,7 @@ where Key: Copy + Eq + Hash + Debug,
 
         if !lexeme.is_empty() {
             println!("Attempting to parse lexeme...");
-            Some(attempt_token_parse(lexeme, get_state(&self.states, current_key)))
+            Some(attempt_token_parse(lexeme, stream.get_pos(), get_state(&self.states, current_key)))
         }
         else { None } // Nothing added to lexeme - assume stream had already reached end.
     }
@@ -164,7 +164,7 @@ where Key: Copy + Debug {
 /// Attempt to convert a lexeme into a token, assuming a given lexeme and final
 /// lexer state (no more possible transitions could be made or reached end of
 /// input stream).
-fn attempt_token_parse<Key, Token>(lexeme: String, final_state: &State<Key, Token>) -> LexResult<Token>
+fn attempt_token_parse<Key, Token>(lexeme: String, pos: &stream::Position, final_state: &State<Key, Token>) -> LexResult<Token>
 where Token: Clone + Debug {
     let potential_tok = match &final_state.parse {
         Parse::To(t) => { Some(t.clone()) }
@@ -175,11 +175,11 @@ where Token: Clone + Debug {
     match potential_tok {
         Some(tok) => {
             println!("Lexeme parsed to token: {:?}\n", tok);
-            LexResult::Success(tok, lexeme)
+            LexResult::Success(lexeme, pos.clone(), tok)
         }
         None => {
             println!("Could not parse to token from lexeme: \"{}\"\n", lexeme);
-            LexResult::Failure(lexeme)
+            LexResult::Failure(lexeme, pos.clone())
         }
     }
 }

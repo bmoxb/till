@@ -1,7 +1,5 @@
 mod lexer;
 
-use super::stream::Stream;
-
 use std::collections::HashMap;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -142,19 +140,20 @@ fn parse_number_literal(s: &str) -> Token { Token::NumberLiteral(s.parse().unwra
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::stream::Stream;
 
-    fn assert_lexing_success(lxr: &mut lexer::Lexer<StateKey, Token>, tok: Token, lexeme: &str) {
-        assert_eq!(
-            lxr.next(),
-            Some(lexer::LexResult::Success(tok, lexeme.to_string()))
-        )
+    fn assert_success(lxr: &mut lexer::Lexer<StateKey, Token>, expected_tok: Token) {
+        if let Some(lexer::LexResult::Success(_, _, tok)) = lxr.next() {
+            assert_eq!(tok, expected_tok);
+        }
+        else { panic!("Expected LexResult::Success variant!"); }
     }
 
-    fn assert_lexing_failure(lxr: &mut lexer::Lexer<StateKey, Token>, lexeme: &str) {
-        assert_eq!(
-            lxr.next(),
-            Some(lexer::LexResult::Failure(lexeme.to_string()))
-        )
+    fn assert_failure(lxr: &mut lexer::Lexer<StateKey, Token>, expect_lexeme: &str) {
+        if let Some(lexer::LexResult::Failure(lexeme, _)) = lxr.next() {
+            assert_eq!(lexeme, expect_lexeme.to_string());
+        }
+        else { panic!("Expected LexResult::Failure variant!"); }
     }
 
     #[test]
@@ -162,8 +161,8 @@ mod tests {
         let mut lxr = new_lexer();
         lxr.stream = Some(Stream::from_str("   5 6.2  "));
 
-        assert_lexing_success(&mut lxr, Token::NumberLiteral(5.0), "5");
-        assert_lexing_success(&mut lxr, Token::NumberLiteral(6.2), "6.2");
+        assert_success(&mut lxr, Token::NumberLiteral(5.0));
+        assert_success(&mut lxr, Token::NumberLiteral(6.2));
         assert_eq!(lxr.next(), None); // last 2 spaces are ignored so effectively end of stream
     }
 
@@ -172,10 +171,10 @@ mod tests {
         let mut lxr = new_lexer();
         
         lxr.stream = Some(Stream::from_str("12.3nexttoken"));
-        assert_lexing_success(&mut lxr, Token::NumberLiteral(12.3), "12.3");
+        assert_success(&mut lxr, Token::NumberLiteral(12.3));
 
         lxr.stream = Some(Stream::from_str("12."));
-        assert_lexing_failure(&mut lxr, "12.");
+        assert_failure(&mut lxr, "12.");
 
         assert_eq!(lxr.next(), None);
     }
@@ -185,12 +184,8 @@ mod tests {
         let mut lxr = new_lexer();
 
         lxr.stream = Some(Stream::from_str("someTHIng _with5and6"));
-
-        let first = "someTHIng";
-        assert_lexing_success(&mut lxr, Token::Identifier(first.to_string()), first);
-
-        let second = "_with5and6";
-        assert_lexing_success(&mut lxr, Token::Identifier(second.to_string()), second);
+        assert_success(&mut lxr, Token::Identifier("someTHIng".to_string()));
+        assert_success(&mut lxr, Token::Identifier("_with5and6".to_string()));
     }
 
     #[test]
@@ -198,7 +193,7 @@ mod tests {
         let mut lxr = new_lexer();
         lxr.stream = Some(Stream::from_str("if else"));
 
-        assert_lexing_success(&mut lxr, Token::IfKeyword, "if");
-        assert_lexing_success(&mut lxr, Token::ElseKeyword, "else");
+        assert_success(&mut lxr, Token::IfKeyword);
+        assert_success(&mut lxr, Token::ElseKeyword);
     }
 }
