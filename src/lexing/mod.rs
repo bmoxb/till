@@ -37,10 +37,15 @@ pub enum Token {
 pub enum StateKey {
     Initial,
     Integer, PotentialReal, Real,
-    IdentifierOrKeyword
+    IdentifierOrKeyword,
+    Newline, IncreaseIndent, DecreaseIndent
 }
 
-pub fn new_lexer() -> lexer::Lexer<'static, StateKey, Token> {
+pub struct Data {
+    identation_level: u8
+}
+
+pub fn new_lexer() -> lexer::Lexer<'static, StateKey, Token, Data> {
     let mut states = HashMap::new();
 
     /* INITIAL STATE */
@@ -48,7 +53,7 @@ pub fn new_lexer() -> lexer::Lexer<'static, StateKey, Token> {
     states.insert(
         StateKey::Initial,
         lexer::State {
-            parse: lexer::Parse::Invalid, // cannot exit initial state
+            parse: lexer::Parse::Invalid,
             transitions: vec![
                 lexer::Transition {
                     match_by: lexer::Match::ByFunction(&match_digit),
@@ -84,7 +89,7 @@ pub fn new_lexer() -> lexer::Lexer<'static, StateKey, Token> {
     states.insert(
         StateKey::PotentialReal,
         lexer::State {
-            parse: lexer::Parse::Invalid, // Digit(s), decimal point, without further digit(s) in invalid
+            parse: lexer::Parse::Invalid, // Digit(s), decimal point, without further digit(s) is invalid.
             transitions: vec![
                 lexer::Transition {
                     match_by: lexer::Match::ByFunction(&match_digit),
@@ -112,7 +117,7 @@ pub fn new_lexer() -> lexer::Lexer<'static, StateKey, Token> {
     states.insert(
         StateKey::IdentifierOrKeyword,
         lexer::State {
-            parse: lexer::Parse::ByFunction(&|lexeme| {
+            parse: lexer::Parse::ByFunction(&|_, lexeme| {
                 match lexeme {
                     "if" => Token::IfKeyword,
                     "else" => Token::ElseKeyword,
@@ -127,14 +132,35 @@ pub fn new_lexer() -> lexer::Lexer<'static, StateKey, Token> {
             ]
         }
     );
-
-    let ignore = vec![' ']; // spaces can be ignored when in initial state
     
-    lexer::Lexer::new(states, StateKey::Initial, ignore)
+    /* NEWLINES & INDENTATION */
+
+    states.insert(
+        StateKey::Newline,
+        lexer::State {
+            parse: lexer::Parse::ByFunction(&|data, lexeme| {
+                // Determine change in indentation level and return either Newline,
+                // IncreaseIndent or DecreaseIndent accordingly.
+                Token::Newlines // TODO: temp
+            }),
+            transitions: vec![
+                lexer::Transition {
+                    match_by: lexer::Match::ByChars(vec!['\n', '\t']),
+                    to: lexer::Dest::ToSelf
+                }
+            ]
+        }
+    );
+
+    let ignore = vec![' ']; // Spaces can be ignored when in the initial state.
+
+    let data = Data { identation_level: 0 }; // Begin at identation level zero.
+
+    lexer::Lexer::new(states, StateKey::Initial, data, ignore)
 }
 
 fn match_digit(c: &char) -> bool { c.is_digit(10) }
-fn parse_number_literal(s: &str) -> Token { Token::NumberLiteral(s.parse().unwrap()) }
+fn parse_number_literal(_: &mut Data, s: &str) -> Token { Token::NumberLiteral(s.parse().unwrap()) }
 
 
 #[cfg(test)]
@@ -142,14 +168,14 @@ mod tests {
     use super::*;
     use crate::stream::Stream;
 
-    fn assert_success(lxr: &mut lexer::Lexer<StateKey, Token>, expected_tok: Token) {
+    fn assert_success(lxr: &mut lexer::Lexer<StateKey, Token, Data>, expected_tok: Token) {
         if let Some(lexer::LexResult::Success(_, _, tok)) = lxr.next() {
             assert_eq!(tok, expected_tok);
         }
         else { panic!("Expected LexResult::Success variant!"); }
     }
 
-    fn assert_failure(lxr: &mut lexer::Lexer<StateKey, Token>, expect_lexeme: &str) {
+    fn assert_failure(lxr: &mut lexer::Lexer<StateKey, Token, Data>, expect_lexeme: &str) {
         if let Some(lexer::LexResult::Failure(lexeme, _)) = lxr.next() {
             assert_eq!(lexeme, expect_lexeme.to_string());
         }
