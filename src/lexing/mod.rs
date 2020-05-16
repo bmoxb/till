@@ -1,4 +1,4 @@
-mod lexer;
+pub mod lexer;
 
 use std::collections::HashMap;
 
