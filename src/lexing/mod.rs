@@ -7,10 +7,6 @@ pub enum Token {
     // Keywords:
     IfKeyword, // if
     ElseKeyword, // else
-    // Whitespace:
-    Newlines,
-    IndentIncr,
-    IndentDecr,
     // Brackets:
     BracketOpen, // (
     BracketClose, // )
@@ -23,6 +19,7 @@ pub enum Token {
     NumberLiteral(f64),
     StringLiteral(String),
     // Other:
+    Newline(usize), // value is indentation level of the new line
     Arrow, // ->
     Comma, // ,
     Equals, // =
@@ -38,16 +35,10 @@ pub enum Key {
     Initial,
     Integer, PotentialReal, Real,
     IdentifierOrKeyword,
-    Newlines, Indentation
+    Newline
 }
 
-pub struct Data {
-    identation_level: u8
-}
-
-pub fn new_lexer() -> lexer::Lexer<'static, Key, Token, Data> {
-    let indentation_chars = vec![' ', '\t'];
-
+pub fn new_lexer() -> lexer::Lexer<'static, Key, Token> {
     let mut states = HashMap::new();
 
     /* INITIAL STATE */
@@ -67,7 +58,7 @@ pub fn new_lexer() -> lexer::Lexer<'static, Key, Token, Data> {
                 },
                 lexer::Transition {
                     match_by: lexer::Match::ByChar('\n'),
-                    to: lexer::Dest::To(Key::Newlines)
+                    to: lexer::Dest::To(Key::Newline)
                 }
             ]
         }
@@ -123,7 +114,7 @@ pub fn new_lexer() -> lexer::Lexer<'static, Key, Token, Data> {
     states.insert(
         Key::IdentifierOrKeyword,
         lexer::State {
-            parse: lexer::Parse::ByFunction(&|_, lexeme| {
+            parse: lexer::Parse::ByFunction(&|lexeme| {
                 match lexeme {
                     "if" => Token::IfKeyword,
                     "else" => Token::ElseKeyword,
@@ -132,7 +123,7 @@ pub fn new_lexer() -> lexer::Lexer<'static, Key, Token, Data> {
             }),
             transitions: vec![
                 lexer::Transition {
-                    match_by: lexer::Match::ByFunction(&|c| c.is_ascii_alphanumeric()),
+                    match_by: lexer::Match::ByFunction(&|c| c.is_ascii_alphanumeric() || *c == '_'),
                     to: lexer::Dest::ToSelf
                 }
             ]
@@ -142,34 +133,14 @@ pub fn new_lexer() -> lexer::Lexer<'static, Key, Token, Data> {
     /* NEWLINES & INDENTATION */
 
     states.insert(
-        Key::Newlines,
+        Key::Newline,
         lexer::State {
-            parse: lexer::Parse::To(Token::Newlines),
-            transitions: vec![
-                lexer::Transition {
-                    match_by: lexer::Match::ByChar('\n'),
-                    to: lexer::Dest::ToSelf
-                },
-                lexer::Transition {
-                    match_by: lexer::Match::ByChars(indentation_chars.clone()),
-                    to: lexer::Dest::To(Key::Indentation)
-                }
-            ]
-        }
-    );
-
-    states.insert(
-        Key::Indentation,
-        lexer::State {
-            parse: lexer::Parse::ByFunction(&|data, lexeme| {
-                // Determine change in indentation level and return either Newline,
-                // IncreaseIndent or DecreaseIndent accordingly.
-                // Requires being able to return multiple tokens...
-                Token::Newlines // TODO: temp
+            parse: lexer::Parse::ByFunction(&|lexeme| {
+                Token::Newline(lexeme.matches("\t").count())
             }),
             transitions: vec![
                 lexer::Transition {
-                    match_by: lexer::Match::ByChars(indentation_chars),
+                    match_by: lexer::Match::ByChars(vec!['\n', '\t']),
                     to: lexer::Dest::ToSelf
                 }
             ]
@@ -178,13 +149,11 @@ pub fn new_lexer() -> lexer::Lexer<'static, Key, Token, Data> {
 
     let ignore = vec![' ']; // Spaces can be ignored when in the initial state.
 
-    let data = Data { identation_level: 0 }; // Begin at identation level zero.
-
-    lexer::Lexer::new(states, Key::Initial, data, ignore)
+    lexer::Lexer::new(states, Key::Initial, ignore)
 }
 
 fn match_digit(c: &char) -> bool { c.is_digit(10) }
-fn parse_number_literal(_: &mut Data, s: &str) -> Token { Token::NumberLiteral(s.parse().unwrap()) }
+fn parse_number_literal(s: &str) -> Token { Token::NumberLiteral(s.parse().unwrap()) }
 
 
 #[cfg(test)]
@@ -192,14 +161,14 @@ mod tests {
     use super::*;
     use crate::stream::Stream;
 
-    fn assert_success(lxr: &mut lexer::Lexer<Key, Token, Data>, expected_tok: Token) {
+    fn assert_success(lxr: &mut lexer::Lexer<Key, Token>, expected_tok: Token) {
         if let Some(lexer::LexResult::Success(_, _, tok)) = lxr.next() {
             assert_eq!(tok, expected_tok);
         }
         else { panic!("Expected LexResult::Success variant!"); }
     }
 
-    fn assert_failure(lxr: &mut lexer::Lexer<Key, Token, Data>, expect_lexeme: &str) {
+    fn assert_failure(lxr: &mut lexer::Lexer<Key, Token>, expect_lexeme: &str) {
         if let Some(lexer::LexResult::Failure(lexeme, _)) = lxr.next() {
             assert_eq!(lexeme, expect_lexeme.to_string());
         }
@@ -250,13 +219,14 @@ mod tests {
     #[test]
     fn test_indentation() {
         let mut lxr = new_lexer();
-        lxr.stream = Some(Stream::from_str("zero\n\tfirst\n\tfirst_again\n\t\tsecond\nzero_again"));
+        lxr.stream = Some(Stream::from_str("zero\n\tfirst\n\t\tsecond\nzero_again"));
 
         assert_success(&mut lxr, Token::Identifier("zero".to_string()));
-        assert_success(&mut lxr, Token::Newlines);
-        assert_success(&mut lxr, Token::IndentIncr);
+        assert_success(&mut lxr, Token::Newline(1));
         assert_success(&mut lxr, Token::Identifier("first".to_string()));
-        assert_success(&mut lxr, Token::Newlines);
-        assert_success(&mut lxr, Token::Identifier("first_again".to_string()));
+        assert_success(&mut lxr, Token::Newline(2));
+        assert_success(&mut lxr, Token::Identifier("second".to_string()));
+        assert_success(&mut lxr, Token::Newline(0));
+        assert_success(&mut lxr, Token::Identifier("zero_again".to_string()));
     }
 }

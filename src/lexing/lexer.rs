@@ -6,17 +6,17 @@ use std::{ collections::HashMap, hash::Hash, fmt::Debug };
 /// the specified parsing function or target token of the `parse` member is
 /// used to yield a token. A lexical error is produced if `parse` is of the
 /// `Parse::Invalid` variant when a transition away from this state cannot be made).
-pub struct State<'a, Key, Token, Data> {
-    pub parse: Parse<'a, Token, Data>,
+pub struct State<'a, Key, Token> {
+    pub parse: Parse<'a, Token>,
     pub transitions: Vec<Transition<'a, Key>>
 }
 
 /// When the lexer finds itself in a state that it cannot transition from, it
 /// relies on the the value of State::parse in order to either yield a token or
 /// produce a lexical error.
-pub enum Parse<'a, Token, Data> {
+pub enum Parse<'a, Token> {
     To(Token), // For tokens that require no data from the lexeme (e.g. `BracketOpen`).
-    ByFunction(&'a dyn Fn(&mut Data, &str) -> Token), // For tokens with information extracted from lexeme (e.g. `NumberLiteral`, `Identifier`) and/or use lexer data (e.g. `IncreaseIndent`).
+    ByFunction(&'a dyn Fn(&str) -> Token), // For tokens with information extracted from lexeme (e.g. `NumberLiteral`, `Identifier`).
     Invalid // For transitional states that do not produce a token (e.g. `PotentialReal`).
 }
 
@@ -46,7 +46,7 @@ pub enum Dest<Key> {
 }
 
 /// Type allias for a hash map of state keys to states.
-pub type States<'a, Key, Token, Data> = HashMap<Key, State<'a, Key, Token, Data>>;
+pub type States<'a, Key, Token> = HashMap<Key, State<'a, Key, Token>>;
 
 /// Indicates the result of attempting to find the next token - either success
 /// (includes the token and the valid lexeme) or failure (just the invalid lexeme
@@ -62,23 +62,19 @@ pub enum LexResult<Token> {
 /// 
 /// * `Key` - Indicates the type to be used as a hash map key for referencing states.
 /// * `Token` - Indicates the type of tokens yielded by the lexer.
-/// * `Data` - Type of some additional data passed to lexeme parsing functions.
-pub struct Lexer<'a, Key: Copy, Token, Data> {
+pub struct Lexer<'a, Key: Copy, Token> {
     pub stream: Option<stream::Stream>,
-    data: Data,
-
-    states: States<'a, Key, Token, Data>,
+    states: States<'a, Key, Token>,
     initial_state_key: Key,
     ignored: Vec<char>
 }
 
-impl<Key, Token, Data> Lexer<'_, Key, Token, Data>
+impl<Key, Token> Lexer<'_, Key, Token>
 where Key: Copy + Eq + Hash + Debug {
     /// Create a new lexer with it's own unique set of states.
-    pub fn new(states: States<Key, Token, Data>, initial_state_key: Key, data: Data, ignored: Vec<char>) -> Lexer<'_, Key, Token, Data> {
+    pub fn new(states: States<Key, Token>, initial_state_key: Key, ignored: Vec<char>) -> Lexer<'_, Key, Token> {
         Lexer {
             stream: None,
-            data,
             states,
             initial_state_key,
             ignored
@@ -86,7 +82,7 @@ where Key: Copy + Eq + Hash + Debug {
     }
 }
 
-impl<Key, Token, Data> Iterator for Lexer<'_, Key, Token, Data>
+impl<Key, Token> Iterator for Lexer<'_, Key, Token>
 where Key: Copy + Eq + Hash + Debug,
       Token: Clone + Debug {
     type Item = LexResult<Token>;
@@ -130,14 +126,14 @@ where Key: Copy + Eq + Hash + Debug,
 
         if !lexeme.is_empty() {
             println!("Attempting to parse lexeme...");
-            Some(parse_lexeme(lexeme, stream.get_pos(), &mut self.data, get_state(&self.states, current_key)))
+            Some(parse_lexeme(lexeme, stream.get_pos(), get_state(&self.states, current_key)))
         }
         else { None } // Nothing added to lexeme - assume stream had already reached end.
     }
 }
 
 /// Helper method to fetch and unwrap a `State` reference from a `States` hash map.
-fn get_state<'a, Key, Token, Data>(states: &'a States<Key, Token, Data>, key: Key) -> &'a State<'a, Key, Token, Data>
+fn get_state<'a, Key, Token>(states: &'a States<Key, Token>, key: Key) -> &'a State<'a, Key, Token>
 where Key: Eq + Hash + Debug, {
     states.get(&key).expect(&format!("Lexer transitioned into an undefined state: {:?}", key))
 }
@@ -176,11 +172,11 @@ where Key: Copy + Debug {
 /// Attempt to convert a lexeme into a token, assuming a given lexeme and final
 /// lexer state (no more possible transitions could be made or reached end of
 /// input stream).
-fn parse_lexeme<Key, Token, Data>(lexeme: String, pos: &stream::Position, data: &mut Data, final_state: &State<Key, Token, Data>) -> LexResult<Token>
+fn parse_lexeme<Key, Token>(lexeme: String, pos: &stream::Position, final_state: &State<Key, Token>) -> LexResult<Token>
 where Token: Clone + Debug {
     let potential_tok = match &final_state.parse {
         Parse::To(t) => { Some(t.clone()) }
-        Parse::ByFunction(func) => { Some(func(data, &lexeme)) }
+        Parse::ByFunction(func) => { Some(func(&lexeme)) }
         Parse::Invalid => { None }
     };
 
