@@ -155,7 +155,8 @@ pub fn new_lexer() -> lexer::Lexer<'static, Key, Token> {
         Key::Newline,
         lexer::State {
             parse: lexer::Parse::ByFunction(&|lexeme| {
-                Token::Newline(lexeme.matches("\t").count())
+                let line = lexeme.split("\n").last().unwrap(); // Ignore any empty lines, only consider final populated line.
+                Token::Newline(line.matches("\t").count())
             }),
             transitions: vec![
                 lexer::Transition {
@@ -251,5 +252,10 @@ mod tests {
         assert_success(&mut lxr, Token::Identifier("second".to_string()));
         assert_success(&mut lxr, Token::Newline(0));
         assert_success(&mut lxr, Token::Identifier("zero_again".to_string()));
+
+        lxr.stream = Some(Stream::from_str("\n\t\t\n\t"));
+
+        assert_success(&mut lxr, Token::Newline(1));
+        assert_eq!(lxr.next(), None);
     }
 }
