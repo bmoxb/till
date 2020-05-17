@@ -18,6 +18,7 @@ pub enum Token {
     // Literals:
     NumberLiteral(f64),
     StringLiteral(String),
+    CharLiteral(char),
     // Other:
     Newline(usize), // Value is indentation level of the new line.
     Arrow, // ->
@@ -35,7 +36,8 @@ pub enum Key {
     Initial,
     Integer, PotentialReal, Real,
     IdentifierOrKeyword, TypeIdentifier,
-    Newline
+    Newline,
+    PotentialString, StringEscapeSequence, StringLiteral
 }
 
 pub fn new_lexer() -> lexer::Lexer<'static, Key, Token> {
@@ -63,6 +65,10 @@ pub fn new_lexer() -> lexer::Lexer<'static, Key, Token> {
                 lexer::Transition {
                     match_by: lexer::Match::ByChar('\n'),
                     to: lexer::Dest::To(Key::Newline)
+                },
+                lexer::Transition {
+                    match_by: lexer::Match::ByChar('"'),
+                    to: lexer::Dest::To(Key::PotentialString)
                 }
             ]
         }
@@ -167,6 +173,71 @@ pub fn new_lexer() -> lexer::Lexer<'static, Key, Token> {
         }
     );
 
+    /* STRING LITERALS */
+
+    states.insert(
+        Key::PotentialString,
+        lexer::State {
+            parse: lexer::Parse::Invalid,
+            transitions: vec![
+                lexer::Transition {
+                    match_by: lexer::Match::ByChar('\\'),
+                    to: lexer::Dest::To(Key::StringEscapeSequence)
+                },
+                lexer::Transition {
+                    match_by: lexer::Match::ByChar('"'),
+                    to: lexer::Dest::To(Key::StringLiteral)
+                },
+                lexer::Transition {
+                    match_by: lexer::Match::ByFunction(&|c| *c != '"' && *c != '\\'), // TODO? Match::ByNotChars
+                    to: lexer::Dest::ToSelf
+                }
+            ]
+        }
+    );
+
+    states.insert(
+        Key::StringEscapeSequence,
+        lexer::State {
+            parse: lexer::Parse::Invalid,
+            transitions: vec![
+                lexer::Transition {
+                    match_by: lexer::Match::ByChars(vec!['n', 't', '\\', '\"']),
+                    to: lexer::Dest::To(Key::PotentialString)
+                }
+            ]
+        }
+    );
+
+    states.insert(
+        Key::StringLiteral,
+        lexer::State {
+            parse: lexer::Parse::ByFunction(&|lexeme| {
+                let mut literal = String::new();
+
+                if lexeme != "\"\"" {
+                    let mut iter = lexeme[1..lexeme.len()-1].chars();
+                    
+                    while let Some(chr) = iter.next() {
+                        if chr == '\\' {
+                            literal.push(match iter.next().unwrap() {
+                                'n' => '\n',
+                                't' => '\t',
+                                '\\' => '\\',
+                                '\"' => '\"',
+                                _ => panic!("Invalid escape sequence in string literal!")
+                            });
+                        }
+                        else { literal.push(chr) }
+                    }
+                }
+
+                Token::StringLiteral(literal)
+            }),
+            transitions: vec![]
+        }
+    );
+
     let ignore = vec![' ']; // Spaces can be ignored when in the initial state.
 
     lexer::Lexer::new(states, Key::Initial, ignore)
@@ -257,5 +328,16 @@ mod tests {
 
         assert_success(&mut lxr, Token::Newline(1));
         assert_eq!(lxr.next(), None);
+    }
+
+    #[test]
+    fn test_string_literals() {
+        let mut lxr = new_lexer();
+        lxr.stream = Some(Stream::from_str("\"\" \"hello\\tworld\" \"世界\" \"\\n\\t\\\"\\\\\""));
+
+        assert_success(&mut lxr, Token::StringLiteral("".to_string()));
+        assert_success(&mut lxr, Token::StringLiteral("hello\tworld".to_string()));
+        assert_success(&mut lxr, Token::StringLiteral("世界".to_string()));
+        assert_success(&mut lxr, Token::StringLiteral("\n\t\"\\".to_string()));
     }
 }
