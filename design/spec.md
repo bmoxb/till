@@ -56,7 +56,7 @@
 
 ### Equality
 
-* Any two of the same type can be compared using the `==` (equals) and `!=` (not-equals) operators.
+* Any two of the same type can be compared using the `==` (equals) operator.
 * Attempting to compare different types will result in an error.
 * These have priority over comparisons (`x > y == y < x` is equivalent `(x > y) == (y < x)` for example).
 

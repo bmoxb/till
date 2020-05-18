@@ -4,31 +4,40 @@ use std::collections::HashMap;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Token {
-    // Keywords:
+    Newline(usize), // Value is indentation level of the new line.
+
+    Identifier(String),
+    TypeIdentifier(String),
+
+    NumberLiteral(f64),
+    StringLiteral(String),
+    CharLiteral(char),
+
     IfKeyword, // if
     ElseKeyword, // else
-    // Brackets:
+    WhileKeyword, // while
+    TrueKeyword, // true
+    FalseKeyword, // false
+
     BracketOpen, // (
     BracketClose, // )
     BracketSquareOpen, // [
     BracketSquareClose, // ]
-    // Identifiers:
-    Identifier(String),
-    TypeIdentifier(String),
-    // Literals:
-    NumberLiteral(f64),
-    StringLiteral(String),
-    CharLiteral(char),
-    // Other:
-    Newline(usize), // Value is indentation level of the new line.
+
+    DoubleEquals, // ==
     Arrow, // ->
+
+    GreaterThan, // >
+    LessThan, // <
     Comma, // ,
     Equals, // =
     Plus, // +
     Minus, // -
     Slash, // /
     Star, // *
-    Caret // ^
+    Caret, // ^
+    ExclaimationMark, // !
+    Tilde // ~
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
@@ -39,7 +48,8 @@ pub enum Key {
     Newline,
     PotentialString, StringEscapeSequence, StringLiteral,
     BeginChar, CharEnd, CharEscapeSequence, CharLiteral,
-    Minus, Arrow,
+    Minus,
+    Equals,
     Other
 }
 
@@ -82,7 +92,11 @@ pub fn new_lexer() -> lexer::Lexer<'static, Key, Token> {
                     to: lexer::Dest::To(Key::Minus)
                 },
                 lexer::Transition {
-                    match_by: lexer::Match::ByChars(vec!['(', ')', '[', ']', ',', '=', '+', '/', '*', '^']),
+                    match_by: lexer::Match::ByChar('='),
+                    to: lexer::Dest::To(Key::Equals)
+                },
+                lexer::Transition {
+                    match_by: lexer::Match::ByChars(vec!['(', ')', '[', ']', '>', '<', ',', '+', '/', '*', '^', '!', '~']),
                     to: lexer::Dest::To(Key::Other)
                 }
             ]
@@ -143,6 +157,9 @@ pub fn new_lexer() -> lexer::Lexer<'static, Key, Token> {
                 match lexeme {
                     "if" => Token::IfKeyword,
                     "else" => Token::ElseKeyword,
+                    "while" => Token::WhileKeyword,
+                    "true" => Token::TrueKeyword,
+                    "false" => Token::FalseKeyword,
                     x => Token::Identifier(x.to_string())
                 }
             }),
@@ -315,7 +332,7 @@ pub fn new_lexer() -> lexer::Lexer<'static, Key, Token> {
         }
     );
 
-    /* MINUS & ARROW */
+    /* MINUS */
 
     states.insert(
         Key::Minus,
@@ -323,20 +340,28 @@ pub fn new_lexer() -> lexer::Lexer<'static, Key, Token> {
             parse: lexer::Parse::To(Token::Minus),
             transitions: vec![
                 lexer::Transition {
-                    match_by: lexer::Match::ByChar('>'),
-                    to: lexer::Dest::To(Key::Arrow)
+                    match_by: lexer::Match::ByChar('>'), // Lexeme will be: ->
+                    to: lexer::Dest::To(Key::Other)
                 }
             ]
         }
     );
 
+    /* EQUALS */
+
     states.insert(
-        Key::Arrow,
+        Key::Equals,
         lexer::State {
-            parse: lexer::Parse::To(Token::Arrow),
-            transitions: vec![]
+            parse: lexer::Parse::To(Token::Equals),
+            transitions: vec![
+                lexer::Transition {
+                    match_by: lexer::Match::ByChar('='), // Lexeme will be: ==
+                    to: lexer::Dest::To(Key::Other)
+                }
+            ]
         }
     );
+
 
     /* OTHER TOKENS */
 
@@ -345,16 +370,22 @@ pub fn new_lexer() -> lexer::Lexer<'static, Key, Token> {
         lexer::State {
             parse: lexer::Parse::ByFunction(&|lexeme| {
                 match lexeme {
+                    "->" => Token::Arrow,
+                    "==" => Token::DoubleEquals,
+
                     "(" => Token::BracketOpen,
                     ")" => Token::BracketClose,
                     "[" => Token::BracketSquareOpen,
                     "]" => Token::BracketSquareClose,
+                    ">" => Token::GreaterThan,
+                    "<" => Token::LessThan,
                     "," => Token::Comma,
-                    "=" => Token::Equals,
                     "+" => Token::Plus,
                     "/" => Token::Slash,
                     "*" => Token::Star,
                     "^" => Token::Caret,
+                    "!" => Token::ExclaimationMark,
+                    "~" => Token::Tilde,
                     _ => panic!()
                 }
             }),
@@ -444,9 +475,12 @@ mod tests {
 
     #[test]
     fn test_keywords() {
-        TestLexer::input("if else")
+        TestLexer::input("if else  while  true false")
         .expect_next(Token::IfKeyword)
-        .expect_next(Token::ElseKeyword);
+        .expect_next(Token::ElseKeyword)
+        .expect_next(Token::WhileKeyword)
+        .expect_next(Token::TrueKeyword)
+        .expect_next(Token::FalseKeyword);
     }
 
     #[test]
@@ -491,15 +525,25 @@ mod tests {
     }
 
     #[test]
+    fn test_equals_and_double_equals() {
+        TestLexer::input("= ==")
+        .expect_next(Token::Equals)
+        .expect_next(Token::DoubleEquals);
+    }
+
+    #[test]
     fn test_other_tokens() {
-        TestLexer::input("() []  ,  = + / * ^")
+        TestLexer::input("() [] > < , + / * ^ ! ~")
         .expect_next(Token::BracketOpen).expect_next(Token::BracketClose)
         .expect_next(Token::BracketSquareOpen).expect_next(Token::BracketSquareClose)
+        .expect_next(Token::GreaterThan)
+        .expect_next(Token::LessThan)
         .expect_next(Token::Comma)
-        .expect_next(Token::Equals)
         .expect_next(Token::Plus)
         .expect_next(Token::Slash)
         .expect_next(Token::Star)
-        .expect_next(Token::Caret);
+        .expect_next(Token::Caret)
+        .expect_next(Token::ExclaimationMark)
+        .expect_next(Token::Tilde);
     }
 }
