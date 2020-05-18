@@ -135,7 +135,7 @@ where Key: Copy + Eq + Hash + Debug,
 
 /// Helper method to fetch and unwrap a `State` reference from a `States` hash map.
 fn get_state<'a, Key, Token>(states: &'a States<Key, Token>, key: Key) -> &'a State<'a, Key, Token>
-where Key: Eq + Hash + Debug, {
+where Key: Eq + Hash + Debug {
     states.get(&key).expect(&format!("Lexer transitioned into an undefined state: {:?}", key))
 }
 
