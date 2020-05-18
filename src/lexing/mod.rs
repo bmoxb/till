@@ -40,6 +40,7 @@ pub enum Key {
     PotentialString, StringEscapeSequence, StringLiteral,
     BeginChar, CharEnd, CharEscapeSequence, CharLiteral,
     Minus, Arrow,
+    Other
 }
 
 pub fn new_lexer() -> lexer::Lexer<'static, Key, Token> {
@@ -79,6 +80,10 @@ pub fn new_lexer() -> lexer::Lexer<'static, Key, Token> {
                 lexer::Transition {
                     match_by: lexer::Match::ByChar('-'),
                     to: lexer::Dest::To(Key::Minus)
+                },
+                lexer::Transition {
+                    match_by: lexer::Match::ByChars(vec!['(', ')', '[', ']', ',', '=', '+', '/', '*', '^']),
+                    to: lexer::Dest::To(Key::Other)
                 }
             ]
         }
@@ -333,6 +338,30 @@ pub fn new_lexer() -> lexer::Lexer<'static, Key, Token> {
         }
     );
 
+    /* OTHER TOKENS */
+
+    states.insert(
+        Key::Other,
+        lexer::State {
+            parse: lexer::Parse::ByFunction(&|lexeme| {
+                match lexeme {
+                    "(" => Token::BracketOpen,
+                    ")" => Token::BracketClose,
+                    "[" => Token::BracketSquareOpen,
+                    "]" => Token::BracketSquareClose,
+                    "," => Token::Comma,
+                    "=" => Token::Equals,
+                    "+" => Token::Plus,
+                    "/" => Token::Slash,
+                    "*" => Token::Star,
+                    "^" => Token::Caret,
+                    _ => panic!()
+                }
+            }),
+            transitions: vec![]
+        }
+    );
+
     let ignore = vec![' ']; // Spaces can be ignored when in the initial state.
 
     lexer::Lexer::new(states, Key::Initial, ignore)
@@ -356,112 +385,121 @@ mod tests {
     use super::*;
     use crate::stream::Stream;
 
-    fn assert_success(lxr: &mut lexer::Lexer<Key, Token>, expected_tok: Token) {
-        if let Some(lexer::LexResult::Success(_, _, tok)) = lxr.next() {
-            assert_eq!(tok, expected_tok);
-        }
-        else { panic!("Expected LexResult::Success variant!"); }
+    struct TestLexer<'a> {
+        lxr: lexer::Lexer<'a, Key, Token>
     }
 
-    fn assert_failure(lxr: &mut lexer::Lexer<Key, Token>, expect_lexeme: &str) {
-        if let Some(lexer::LexResult::Failure(lexeme, _)) = lxr.next() {
-            assert_eq!(lexeme, expect_lexeme.to_string());
+    impl TestLexer<'_> {
+        fn input(s: &str) -> TestLexer {
+            let mut lxr = new_lexer();
+            lxr.stream = Some(Stream::from_str(s));
+
+            TestLexer { lxr }
         }
-        else { panic!("Expected LexResult::Failure variant!"); }
+
+        fn expect_next(&mut self, expected_tok: Token) -> &mut Self {
+            if let Some(lexer::LexResult::Success(_, _, tok)) = self.lxr.next() {
+                assert_eq!(tok, expected_tok);
+            }
+            else { panic!("Expected LexResult::Success variant!"); }
+            self
+        }
+
+        fn expect_failure_next(&mut self, expect_lexeme: &str) -> &mut Self {
+            if let Some(lexer::LexResult::Failure(lexeme, _)) = self.lxr.next() {
+                assert_eq!(lexeme, expect_lexeme.to_string());
+            }
+            else { panic!("Expected LexResult::Failure variant!"); }
+            self
+        }
+
+        fn expect_end_of_stream(&mut self) {
+            assert_eq!(self.lxr.next(), None);
+        }
     }
 
     #[test]
     fn test_ignored_characters() {
-        let mut lxr = new_lexer();
-        lxr.stream = Some(Stream::from_str("   5 6.2  "));
-
-        assert_success(&mut lxr, Token::NumberLiteral(5.0));
-        assert_success(&mut lxr, Token::NumberLiteral(6.2));
-        assert_eq!(lxr.next(), None); // last 2 spaces are ignored so effectively end of stream
+        TestLexer::input("  5 6.2   ")
+        .expect_next(Token::NumberLiteral(5.0))
+        .expect_next(Token::NumberLiteral(6.2))
+        .expect_end_of_stream();
     }
 
     #[test]
     fn test_number_literals() {
-        let mut lxr = new_lexer();
-        
-        lxr.stream = Some(Stream::from_str("12.3nexttoken"));
-        assert_success(&mut lxr, Token::NumberLiteral(12.3));
-
-        lxr.stream = Some(Stream::from_str("12."));
-        assert_failure(&mut lxr, "12.");
-
-        assert_eq!(lxr.next(), None);
+        TestLexer::input("12.3 12.")
+        .expect_next(Token::NumberLiteral(12.3))
+        .expect_failure_next("12.");
     }
 
     #[test]
     fn test_identifiers() {
-        let mut lxr = new_lexer();
-        lxr.stream = Some(Stream::from_str("someTHIng _with5and6   Type Nice1_"));
-
-        assert_success(&mut lxr, Token::Identifier("someTHIng".to_string()));
-        assert_success(&mut lxr, Token::Identifier("_with5and6".to_string()));
-        
-        assert_success(&mut lxr, Token::TypeIdentifier("Type".to_string()));
-        assert_success(&mut lxr, Token::TypeIdentifier("Nice1_".to_string()));
+        TestLexer::input("someTHIng _with5and6   Type Nice1_")
+        .expect_next(Token::Identifier("someTHIng".to_string()))
+        .expect_next(Token::Identifier("_with5and6".to_string()))
+        .expect_next(Token::TypeIdentifier("Type".to_string()))
+        .expect_next(Token::TypeIdentifier("Nice1_".to_string()));
     }
 
     #[test]
     fn test_keywords() {
-        let mut lxr = new_lexer();
-        lxr.stream = Some(Stream::from_str("if else"));
-
-        assert_success(&mut lxr, Token::IfKeyword);
-        assert_success(&mut lxr, Token::ElseKeyword);
+        TestLexer::input("if else")
+        .expect_next(Token::IfKeyword)
+        .expect_next(Token::ElseKeyword);
     }
 
     #[test]
     fn test_indentation() {
-        let mut lxr = new_lexer();
-        lxr.stream = Some(Stream::from_str("zero\n\tfirst\n\t\tsecond\nzero_again"));
+        TestLexer::input("0\n\t1\n\t\t2\n0   \n\t\t\n\t")
+        .expect_next(Token::NumberLiteral(0.0))
+        .expect_next(Token::Newline(1))
+        .expect_next(Token::NumberLiteral(1.0))
+        .expect_next(Token::Newline(2))
+        .expect_next(Token::NumberLiteral(2.0))
+        .expect_next(Token::Newline(0))
+        .expect_next(Token::NumberLiteral(0.0))
 
-        assert_success(&mut lxr, Token::Identifier("zero".to_string()));
-        assert_success(&mut lxr, Token::Newline(1));
-        assert_success(&mut lxr, Token::Identifier("first".to_string()));
-        assert_success(&mut lxr, Token::Newline(2));
-        assert_success(&mut lxr, Token::Identifier("second".to_string()));
-        assert_success(&mut lxr, Token::Newline(0));
-        assert_success(&mut lxr, Token::Identifier("zero_again".to_string()));
-
-        lxr.stream = Some(Stream::from_str("\n\t\t\n\t"));
-
-        assert_success(&mut lxr, Token::Newline(1));
-        assert_eq!(lxr.next(), None);
+        .expect_next(Token::Newline(1))
+        .expect_end_of_stream();
     }
 
     #[test]
     fn test_string_literals() {
-        let mut lxr = new_lexer();
-        lxr.stream = Some(Stream::from_str("\"\" \"hello\\tworld\" \"世界\" \"\\n\\t\\\"\\\\\""));
-
-        assert_success(&mut lxr, Token::StringLiteral("".to_string()));
-        assert_success(&mut lxr, Token::StringLiteral("hello\tworld".to_string()));
-        assert_success(&mut lxr, Token::StringLiteral("世界".to_string()));
-        assert_success(&mut lxr, Token::StringLiteral("\n\t\"\\".to_string()));
+        TestLexer::input("\"\" \"hello\\tworld\" \"世界\" \"\\n\\t\\\"\\\\\"")
+        .expect_next(Token::StringLiteral("".to_string()))
+        .expect_next(Token::StringLiteral("hello\tworld".to_string()))
+        .expect_next(Token::StringLiteral("世界".to_string()))
+        .expect_next(Token::StringLiteral("\n\t\"\\".to_string()));
     }
 
     #[test]
     fn test_char_literals() {
-        let mut lxr = new_lexer();
-        lxr.stream = Some(Stream::from_str("'' 'a' 'わ' '\\'' '\\n'"));
-
-        assert_success(&mut lxr, Token::CharLiteral('\0'));
-        assert_success(&mut lxr, Token::CharLiteral('a'));
-        assert_success(&mut lxr, Token::CharLiteral('わ'));
-        assert_success(&mut lxr, Token::CharLiteral('\''));
-        assert_success(&mut lxr, Token::CharLiteral('\n'));
+        TestLexer::input("'' 'a' 'わ' '\\'' '\\n'")
+        .expect_next(Token::CharLiteral('\0'))
+        .expect_next(Token::CharLiteral('a'))
+        .expect_next(Token::CharLiteral('わ'))
+        .expect_next(Token::CharLiteral('\''))
+        .expect_next(Token::CharLiteral('\n'));
     }
 
     #[test]
     fn test_minus_and_arrow() {
-        let mut lxr = new_lexer();
-        lxr.stream = Some(Stream::from_str("- ->"));
+        TestLexer::input("- ->")
+        .expect_next(Token::Minus)
+        .expect_next(Token::Arrow);
+    }
 
-        assert_success(&mut lxr, Token::Minus);
-        assert_success(&mut lxr, Token::Arrow);
+    #[test]
+    fn test_other_tokens() {
+        TestLexer::input("() []  ,  = + / * ^")
+        .expect_next(Token::BracketOpen).expect_next(Token::BracketClose)
+        .expect_next(Token::BracketSquareOpen).expect_next(Token::BracketSquareClose)
+        .expect_next(Token::Comma)
+        .expect_next(Token::Equals)
+        .expect_next(Token::Plus)
+        .expect_next(Token::Slash)
+        .expect_next(Token::Star)
+        .expect_next(Token::Caret);
     }
 }
