@@ -38,7 +38,8 @@ pub enum Key {
     IdentifierOrKeyword, TypeIdentifier,
     Newline,
     PotentialString, StringEscapeSequence, StringLiteral,
-    BeginChar, CharEnd, CharEscapeSequence, CharLiteral
+    BeginChar, CharEnd, CharEscapeSequence, CharLiteral,
+    Minus, Arrow,
 }
 
 pub fn new_lexer() -> lexer::Lexer<'static, Key, Token> {
@@ -74,6 +75,10 @@ pub fn new_lexer() -> lexer::Lexer<'static, Key, Token> {
                 lexer::Transition {
                     match_by: lexer::Match::ByChar('\''),
                     to: lexer::Dest::To(Key::BeginChar)
+                },
+                lexer::Transition {
+                    match_by: lexer::Match::ByChar('-'),
+                    to: lexer::Dest::To(Key::Minus)
                 }
             ]
         }
@@ -305,6 +310,29 @@ pub fn new_lexer() -> lexer::Lexer<'static, Key, Token> {
         }
     );
 
+    /* MINUS & ARROW */
+
+    states.insert(
+        Key::Minus,
+        lexer::State {
+            parse: lexer::Parse::To(Token::Minus),
+            transitions: vec![
+                lexer::Transition {
+                    match_by: lexer::Match::ByChar('>'),
+                    to: lexer::Dest::To(Key::Arrow)
+                }
+            ]
+        }
+    );
+
+    states.insert(
+        Key::Arrow,
+        lexer::State {
+            parse: lexer::Parse::To(Token::Arrow),
+            transitions: vec![]
+        }
+    );
+
     let ignore = vec![' ']; // Spaces can be ignored when in the initial state.
 
     lexer::Lexer::new(states, Key::Initial, ignore)
@@ -426,5 +454,14 @@ mod tests {
         assert_success(&mut lxr, Token::CharLiteral('わ'));
         assert_success(&mut lxr, Token::CharLiteral('\''));
         assert_success(&mut lxr, Token::CharLiteral('\n'));
+    }
+
+    #[test]
+    fn test_minus_and_arrow() {
+        let mut lxr = new_lexer();
+        lxr.stream = Some(Stream::from_str("- ->"));
+
+        assert_success(&mut lxr, Token::Minus);
+        assert_success(&mut lxr, Token::Arrow);
     }
 }
