@@ -35,7 +35,8 @@ pub struct Transition<'a, Key> {
 pub enum Match<'a> {
     ByChar(char), // Match by a single character.
     ByChars(Vec<char>), // Match by a number of possible characters.
-    ByFunction(&'a dyn Fn(&char) -> bool) // Provide read charater to function which will return true if transition should be made.
+    ByFunction(&'a dyn Fn(&char) -> bool), // Provide read charater to function which will return true if transition should be made.
+    Any // Will always match.
 }
 
 /// Indicates how the lexer should transition state - either to remain on the
@@ -148,7 +149,8 @@ where Key: Copy + Debug {
         let should_transition = match &transition.match_by {
             Match::ByChar(expected) => chr == *expected,
             Match::ByChars(possible) => possible.contains(&chr),
-            Match::ByFunction(func) => func(&chr)
+            Match::ByFunction(func) => func(&chr),
+            Match::Any => true
         };
 
         if should_transition {
