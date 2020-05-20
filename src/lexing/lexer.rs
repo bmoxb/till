@@ -49,22 +49,12 @@ pub enum Dest<Key> {
 /// Type allias for a hash map of state keys to states.
 pub type States<'a, Key, Token> = HashMap<Key, State<'a, Key, Token>>;
 
-/// Indicates the result of attempting to find the next token - either success
-/// (includes the token and the valid lexeme) or failure (just the invalid lexeme
-/// and obviously no token).
-#[derive(Debug, PartialEq)]
-pub enum LexResult<Token> {
-    Success(String, stream::Position, Token),
-    Failure(String, stream::Position)
-}
-
 /// A generic lexical analysis structure (not specific to lexing TILL - see
 /// `lexing` module for how it is configured to do that).
 /// 
 /// * `Key` - Indicates the type to be used as a hash map key for referencing states.
 /// * `Token` - Indicates the type of tokens yielded by the lexer.
 pub struct Lexer<'a, Key: Copy, Token> {
-    pub stream: Option<stream::Stream>,
     states: States<'a, Key, Token>,
     initial_state_key: Key,
     ignored: Vec<char>
@@ -75,15 +65,50 @@ where Key: Copy + Eq + Hash + Debug {
     /// Create a new lexer with it's own unique set of states.
     pub fn new(states: States<Key, Token>, initial_state_key: Key, ignored: Vec<char>) -> Lexer<'_, Key, Token> {
         Lexer {
-            stream: None,
             states,
             initial_state_key,
             ignored
         }
     }
+
+    pub fn input(&self, strm: stream::Stream) -> LexIterator<'_, Key, Token> {
+        LexIterator {
+            lxr: self,
+            strm
+        }
+    }
 }
 
-impl<Key, Token> Iterator for Lexer<'_, Key, Token>
+/// Indicates the result of attempting to find the next token - either success
+/// (includes the token and the valid lexeme) or failure (just the invalid lexeme
+/// and obviously no token).
+#[derive(Debug, PartialEq)]
+pub enum LexResult<Token> {
+    Success(String, stream::Position, Token),
+    Failure(String, stream::Position)
+}
+
+/// Iterator that yields `LexResult` instances containing a lexeme, stream potition,
+/// and (assuming the lexeme is valid) a token. Created by the `Lexer::input` method.
+pub struct LexIterator<'a, Key: Copy, Token> {
+    lxr: &'a Lexer<'a, Key, Token>,
+    strm: stream::Stream
+}
+
+impl<Key, Token> LexIterator<'_, Key, Token>
+where Key: Copy, Self: Iterator<Item=LexResult<Token>> {
+    /// Collects all yielded tokens (extracted from `LexResult::Success`).
+    pub fn collect_tokens(&mut self) -> Vec<Token> {
+        self.filter_map(|result| {
+            match result {
+                LexResult::Success(_, _, tok) => Some(tok),
+                LexResult::Failure(_, _) => None
+            }
+        }).collect()
+    }
+}
+
+impl<Key, Token> Iterator for LexIterator<'_, Key, Token>
 where Key: Copy + Eq + Hash + Debug,
       Token: Clone + Debug {
     type Item = LexResult<Token>;
@@ -92,19 +117,17 @@ where Key: Copy + Eq + Hash + Debug,
     /// Returns `None` should the end of the current input stream have been
     /// reached.
     fn next(&mut self) -> Option<Self::Item> {
-        let stream = self.stream.as_mut().expect("Cannot perform lexical analysis when no input stream is set!");
-
-        let mut current_key = self.initial_state_key;
+        let mut current_key = self.lxr.initial_state_key;
         let mut lexeme = String::new();
 
-        while let Some(chr) = stream.peek() {
+        while let Some(chr) = self.strm.peek() {
             log::trace!("Peeking character: {:?}", chr);
             
-            let state = get_state(&self.states, current_key);
+            let state = get_state(&self.lxr.states, current_key);
 
             if let Some(new_key) = transition_state(current_key, &state.transitions, chr) {
                 lexeme.push(chr);
-                stream.advance();
+                self.strm.advance();
                 log::trace!("Character added to lexeme: {:?}", lexeme);
 
                 current_key = new_key;
@@ -113,9 +136,9 @@ where Key: Copy + Eq + Hash + Debug,
             else {
                 log::trace!("No appropriate transitions from state {:?} found!", current_key);
 
-                if self.ignored.contains(&chr) && current_key == self.initial_state_key {
+                if self.lxr.ignored.contains(&chr) && current_key == self.lxr.initial_state_key {
                     log::trace!("As currently in the initial state, character can be ignored - continuing...");
-                    stream.advance(); // Advance the stream but don't add ignored character to lexeme.
+                    self.strm.advance(); // Advance the stream but don't add ignored character to lexeme.
                 }
                 else {
                     log::trace!("Character cannot be ignored - breaking...");
@@ -126,7 +149,7 @@ where Key: Copy + Eq + Hash + Debug,
 
         if !lexeme.is_empty() {
             log::trace!("Attempting to parse lexeme...");
-            Some(parse_lexeme(lexeme, stream.get_pos(), get_state(&self.states, current_key)))
+            Some(parse_lexeme(lexeme, self.strm.get_pos(), get_state(&self.lxr.states, current_key)))
         }
         else { None } // Nothing added to lexeme - assume stream had already reached end.
     }

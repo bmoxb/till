@@ -1,7 +1,11 @@
 mod stream;
 mod lexing;
 
-use std::{ env, fs, io, path::Path };
+use stream::Stream;
+
+use std::{ env, fs, io, io::BufRead, io::Write, path::Path };
+
+const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
 fn main() {
     // Only enable logging if debug build:
@@ -15,6 +19,8 @@ fn main() {
 }
 
 fn execute_file(relative_path: &Path) {
+    log::info!("Executing TILL file...");
+
     let path = match relative_path.canonicalize() {
         Ok(full_path) => full_path,
         Err(_) => relative_path.to_path_buf()
@@ -24,23 +30,19 @@ fn execute_file(relative_path: &Path) {
         Ok(file) => {
             log::info!("Successfully opened file: {}", path.display());
 
-            let mut lxr = lexing::new_lexer();
-            lxr.stream = Some(stream::Stream::from_file(file));
+            let lxr = lexing::new_lexer();
+            let mut iter = lxr.input(Stream::from_file(file));
 
-            let tokens: Vec<lexing::Token> = lxr.filter_map(|result| {
-                match result {
-                    lexing::lexer::LexResult::Success(_, _, tok) => Some(tok),
-                    lexing::lexer::LexResult::Failure(_, _) => None
-                }
-            }).collect();
-
-            log::info!("Tokens: {:?}", tokens);
+            log::info!("{:?}", iter.collect_tokens());
         }
         Err(e) => {
             match e.kind() {
                 io::ErrorKind::NotFound => println!("File not found at: {}", path.display()),
                 io::ErrorKind::PermissionDenied => println!("Lack required permissions to read file at: {}", path.display()),
-                kind => println!("Error of kind {:?} occured when attempting to open file at: {}", kind, path.display())
+                kind => {
+                    println!("Error occured when attempting to open file at: {}", path.display());
+                    log::error!("File open error kind: {:?}", kind);
+                }
             }
         }
     }
@@ -48,4 +50,29 @@ fn execute_file(relative_path: &Path) {
 
 fn repl() {
     log::info!("Beginning REPL...");
+
+    let lxr = lexing::new_lexer();
+
+    println!("Tiny Interpreted Lightweight Language (TILL) {}", VERSION);
+
+    loop {
+        let mut input = String::new();
+
+        while !input.ends_with("\n\n") {
+            let mut buffer = String::new();
+
+            print!("> ");
+            io::stdout().flush().unwrap();
+
+            match io::stdin().lock().read_line(&mut buffer) {
+                Ok(_) => input.push_str(&buffer),
+                Err(e) => {
+                    log::warn!("Read from standard input error: {}", e);
+                    break;
+                }
+            }
+        }
+
+        println!("{:?}", lxr.input(Stream::from_str(&input)).collect_tokens());
+    }
 }

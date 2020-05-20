@@ -418,134 +418,123 @@ mod tests {
     use super::*;
     use crate::stream::Stream;
 
-    struct TestLexer<'a> {
-        lxr: lexer::Lexer<'a, Key, Token>
-    }
-
-    impl TestLexer<'_> {
-        fn input(s: &str) -> TestLexer {
-            let mut lxr = new_lexer();
-            lxr.stream = Some(Stream::from_str(s));
-
-            TestLexer { lxr }
-        }
-
-        fn expect_next(&mut self, expected_tok: Token) -> &mut Self {
-            if let Some(lexer::LexResult::Success(_, _, tok)) = self.lxr.next() {
+    impl lexer::LexIterator<'_, Key, Token> {
+        fn assert_next(&mut self, expected_tok: Token) -> &mut Self {
+            if let Some(lexer::LexResult::Success(_, _, tok)) = self.next() {
                 assert_eq!(tok, expected_tok);
             }
             else { panic!("Expected LexResult::Success variant!"); }
             self
         }
-
-        fn expect_failure_next(&mut self, expect_lexeme: &str) -> &mut Self {
-            if let Some(lexer::LexResult::Failure(lexeme, _)) = self.lxr.next() {
+    
+        fn assert_failure_next(&mut self, expect_lexeme: &str) -> &mut Self {
+            if let Some(lexer::LexResult::Failure(lexeme, _)) = self.next() {
                 assert_eq!(lexeme, expect_lexeme.to_string());
             }
             else { panic!("Expected LexResult::Failure variant!"); }
             self
         }
-
-        fn expect_end_of_stream(&mut self) {
-            assert_eq!(self.lxr.next(), None);
+    
+        fn assert_end_of_stream(&mut self) {
+            assert_eq!(self.next(), None);
         }
     }
 
     #[test]
     fn test_ignored_characters() {
-        TestLexer::input("  5 6.2   ")
-        .expect_next(Token::NumberLiteral(5.0))
-        .expect_next(Token::NumberLiteral(6.2))
-        .expect_end_of_stream();
+        new_lexer().input(Stream::from_str("  5 6.2   "))
+        .assert_next(Token::NumberLiteral(5.0))
+        .assert_next(Token::NumberLiteral(6.2))
+        .assert_end_of_stream();
     }
 
     #[test]
     fn test_number_literals() {
-        TestLexer::input("12.3 12.")
-        .expect_next(Token::NumberLiteral(12.3))
-        .expect_failure_next("12.");
+        new_lexer().input(Stream::from_str("12.3 12."))
+        .assert_next(Token::NumberLiteral(12.3))
+        .assert_failure_next("12.");
     }
 
     #[test]
     fn test_identifiers() {
-        TestLexer::input("someTHIng _with5and6   Type Nice1_")
-        .expect_next(Token::Identifier("someTHIng".to_string()))
-        .expect_next(Token::Identifier("_with5and6".to_string()))
-        .expect_next(Token::TypeIdentifier("Type".to_string()))
-        .expect_next(Token::TypeIdentifier("Nice1_".to_string()));
+        new_lexer().input(Stream::from_str("someTHIng _with5and6   Type Nice1_"))
+        .assert_next(Token::Identifier("someTHIng".to_string()))
+        .assert_next(Token::Identifier("_with5and6".to_string()))
+        .assert_next(Token::TypeIdentifier("Type".to_string()))
+        .assert_next(Token::TypeIdentifier("Nice1_".to_string()));
     }
 
     #[test]
     fn test_keywords() {
-        TestLexer::input("if else  while  true false")
-        .expect_next(Token::IfKeyword)
-        .expect_next(Token::ElseKeyword)
-        .expect_next(Token::WhileKeyword)
-        .expect_next(Token::TrueKeyword)
-        .expect_next(Token::FalseKeyword);
+        new_lexer().input(Stream::from_str("if else  while  true false"))
+        .assert_next(Token::IfKeyword)
+        .assert_next(Token::ElseKeyword)
+        .assert_next(Token::WhileKeyword)
+        .assert_next(Token::TrueKeyword)
+        .assert_next(Token::FalseKeyword);
     }
 
     #[test]
     fn test_indentation() {
-        TestLexer::input("0\n\t1\n\t\t2\n0   \n\t\t\n\t")
-        .expect_next(Token::NumberLiteral(0.0))
-        .expect_next(Token::Newline(1))
-        .expect_next(Token::NumberLiteral(1.0))
-        .expect_next(Token::Newline(2))
-        .expect_next(Token::NumberLiteral(2.0))
-        .expect_next(Token::Newline(0))
-        .expect_next(Token::NumberLiteral(0.0))
+        new_lexer().input(Stream::from_str("0\n\t1\n\t\t2\n0   \n\t\t\n\t"))
+        .assert_next(Token::NumberLiteral(0.0))
+        .assert_next(Token::Newline(1))
+        .assert_next(Token::NumberLiteral(1.0))
+        .assert_next(Token::Newline(2))
+        .assert_next(Token::NumberLiteral(2.0))
+        .assert_next(Token::Newline(0))
+        .assert_next(Token::NumberLiteral(0.0))
 
-        .expect_next(Token::Newline(1))
-        .expect_end_of_stream();
+        .assert_next(Token::Newline(1))
+        .assert_end_of_stream();
     }
 
     #[test]
     fn test_string_literals() {
-        TestLexer::input("\"\" \"hello\\tworld\" \"世界\" \"\\n\\t\\\"\\\\\"")
-        .expect_next(Token::StringLiteral("".to_string()))
-        .expect_next(Token::StringLiteral("hello\tworld".to_string()))
-        .expect_next(Token::StringLiteral("世界".to_string()))
-        .expect_next(Token::StringLiteral("\n\t\"\\".to_string()));
+        new_lexer().input(Stream::from_str("\"\" \"hello\\tworld\" \"世界\" \"\\n\\t\\\"\\\\\""))
+        .assert_next(Token::StringLiteral("".to_string()))
+        .assert_next(Token::StringLiteral("hello\tworld".to_string()))
+        .assert_next(Token::StringLiteral("世界".to_string()))
+        .assert_next(Token::StringLiteral("\n\t\"\\".to_string()));
     }
 
     #[test]
     fn test_char_literals() {
-        TestLexer::input("'' 'a' 'わ' '\\'' '\\n'")
-        .expect_next(Token::CharLiteral('\0'))
-        .expect_next(Token::CharLiteral('a'))
-        .expect_next(Token::CharLiteral('わ'))
-        .expect_next(Token::CharLiteral('\''))
-        .expect_next(Token::CharLiteral('\n'));
+        new_lexer().input(Stream::from_str("'' 'a' 'わ' '\\'' '\\n'"))
+        .assert_next(Token::CharLiteral('\0'))
+        .assert_next(Token::CharLiteral('a'))
+        .assert_next(Token::CharLiteral('わ'))
+        .assert_next(Token::CharLiteral('\''))
+        .assert_next(Token::CharLiteral('\n'));
     }
 
     #[test]
     fn test_minus_and_arrow() {
-        TestLexer::input("- ->")
-        .expect_next(Token::Minus)
-        .expect_next(Token::Arrow);
+        new_lexer().input(Stream::from_str("- ->"))
+        .assert_next(Token::Minus)
+        .assert_next(Token::Arrow);
     }
 
     #[test]
     fn test_equals_and_double_equals() {
-        TestLexer::input("= ==")
-        .expect_next(Token::Equals)
-        .expect_next(Token::DoubleEquals);
+        new_lexer().input(Stream::from_str("= =="))
+        .assert_next(Token::Equals)
+        .assert_next(Token::DoubleEquals);
     }
 
     #[test]
     fn test_other_tokens() {
-        TestLexer::input("() [] > < , + / * ^ ! ~")
-        .expect_next(Token::BracketOpen).expect_next(Token::BracketClose)
-        .expect_next(Token::BracketSquareOpen).expect_next(Token::BracketSquareClose)
-        .expect_next(Token::GreaterThan)
-        .expect_next(Token::LessThan)
-        .expect_next(Token::Comma)
-        .expect_next(Token::Plus)
-        .expect_next(Token::Slash)
-        .expect_next(Token::Star)
-        .expect_next(Token::Caret)
-        .expect_next(Token::ExclaimationMark)
-        .expect_next(Token::Tilde);
+        new_lexer().input(Stream::from_str("() [] > < , + / * ^ ! ~"))
+        .assert_next(Token::BracketOpen).assert_next(Token::BracketClose)
+        .assert_next(Token::BracketSquareOpen).assert_next(Token::BracketSquareClose)
+        .assert_next(Token::GreaterThan)
+        .assert_next(Token::LessThan)
+        .assert_next(Token::Comma)
+        .assert_next(Token::Plus)
+        .assert_next(Token::Slash)
+        .assert_next(Token::Star)
+        .assert_next(Token::Caret)
+        .assert_next(Token::ExclaimationMark)
+        .assert_next(Token::Tilde);
     }
 }
