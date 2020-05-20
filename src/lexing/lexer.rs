@@ -98,35 +98,34 @@ where Key: Copy + Eq + Hash + Debug,
         let mut lexeme = String::new();
 
         while let Some(chr) = stream.peek() {
-            println!("Peeking character: {:?}", chr);
+            log::trace!("Peeking character: {:?}", chr);
             
             let state = get_state(&self.states, current_key);
-            println!("Current state: {:?}", current_key);
 
             if let Some(new_key) = transition_state(current_key, &state.transitions, chr) {
                 lexeme.push(chr);
                 stream.advance();
-                println!("Character added to lexeme: {:?}", lexeme);
+                log::trace!("Character added to lexeme: {:?}", lexeme);
 
                 current_key = new_key;
-                println!("State transitioned made - continuing...");
+                log::trace!("State transitioned made - continuing...");
             }
             else {
-                println!("No appropriate transitions from this state found!");
+                log::trace!("No appropriate transitions from state {:?} found!", current_key);
 
                 if self.ignored.contains(&chr) && current_key == self.initial_state_key {
-                    println!("As currently in the initial state, character can be ignored - continuing...");
+                    log::trace!("As currently in the initial state, character can be ignored - continuing...");
                     stream.advance(); // Advance the stream but don't add ignored character to lexeme.
                 }
                 else {
-                    println!("Character cannot be ignored - breaking...");
+                    log::trace!("Character cannot be ignored - breaking...");
                     break;
                 }
             }
         }
 
         if !lexeme.is_empty() {
-            println!("Attempting to parse lexeme...");
+            log::trace!("Attempting to parse lexeme...");
             Some(parse_lexeme(lexeme, stream.get_pos(), get_state(&self.states, current_key)))
         }
         else { None } // Nothing added to lexeme - assume stream had already reached end.
@@ -156,12 +155,12 @@ where Key: Copy + Debug {
         if should_transition {
             return match &transition.to {
                 Dest::To(new_key) => {
-                    println!("Transitioning state from {:?} to {:?}...", current_key, new_key);
+                    log::trace!("Transitioning state from {:?} to {:?}...", current_key, new_key);
                     Some(*new_key) // To new state...
                 }
 
                 Dest::ToSelf => {
-                    println!("Remaining in current state {:?}...", current_key);
+                    log::trace!("Remaining in current state {:?}...", current_key);
                     Some(current_key) // To same state...
                 }
             }
@@ -184,11 +183,11 @@ where Token: Clone + Debug {
 
     match potential_tok {
         Some(tok) => {
-            println!("Lexeme parsed to token: {:?}\n", tok);
+            log::debug!("At {} - lexeme {:?} parsed to token: {:?}", pos, lexeme, tok);
             LexResult::Success(lexeme, pos.clone(), tok)
         }
         None => {
-            println!("Could not parse to token from lexeme: {:?}\n", lexeme);
+            log::debug!("At {} - could not parse to token from lexeme: {:?}", pos, lexeme);
             LexResult::Failure(lexeme, pos.clone())
         }
     }

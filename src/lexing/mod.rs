@@ -54,6 +54,8 @@ pub enum Key {
 }
 
 pub fn new_lexer() -> lexer::Lexer<'static, Key, Token> {
+    log::info!("Setting up lexer states and transitions...");
+
     let mut states = HashMap::new();
 
     /* INITIAL STATE */

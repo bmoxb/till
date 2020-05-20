@@ -1,4 +1,4 @@
-use std::fs;
+use std::{ fs, fmt };
 use char_stream::CharStream;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -11,6 +11,12 @@ pub struct Position {
 impl Position {
     fn new() -> Position {
         Position { position: 0, line_number: 1, line_position: 0 }
+    }
+}
+
+impl fmt::Display for Position {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "character {} of line {}", self.line_position, self.line_number)
     }
 }
 
