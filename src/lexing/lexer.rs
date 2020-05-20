@@ -54,7 +54,7 @@ pub type States<'a, Key, Token> = HashMap<Key, State<'a, Key, Token>>;
 /// 
 /// * `Key` - Indicates the type to be used as a hash map key for referencing states.
 /// * `Token` - Indicates the type of tokens yielded by the lexer.
-pub struct Lexer<'a, Key: Copy, Token> {
+pub struct Lexer<'a, Key, Token> {
     states: States<'a, Key, Token>,
     initial_state_key: Key,
     ignored: Vec<char>
@@ -90,7 +90,7 @@ pub enum LexResult<Token> {
 
 /// Iterator that yields `LexResult` instances containing a lexeme, stream potition,
 /// and (assuming the lexeme is valid) a token. Created by the `Lexer::input` method.
-pub struct LexIterator<'a, Key: Copy, Token> {
+pub struct LexIterator<'a, Key, Token> {
     lxr: &'a Lexer<'a, Key, Token>,
     strm: stream::Stream
 }
