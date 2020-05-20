@@ -53,7 +53,13 @@ pub enum Key {
     Other
 }
 
-pub fn new_lexer() -> lexer::Lexer<'static, Key, Token> {
+/// Static `lexer::Lexer` type that is specific to the TILL language (i.e. set
+/// up to return TILL tokens and use the appropriate state keys).
+/// Use the `new_lexer` function *once* to create an instance of this type that
+/// has the appropriate states required to lex TILL code.
+pub type TillLexer = lexer::Lexer<'static, Key, Token>;
+
+pub fn new_lexer() -> TillLexer {
     log::info!("Setting up lexer states and transitions...");
 
     let mut states = HashMap::new();

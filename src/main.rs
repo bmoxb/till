@@ -1,6 +1,6 @@
 mod stream;
 mod lexing;
-mod parser;
+mod parsing;
 
 use stream::Stream;
 
@@ -32,10 +32,8 @@ fn execute_file(relative_path: &Path) {
             log::info!("Successfully opened file: {}", path.display());
 
             let strm = Stream::from_file(file);
-            let lxr = lexing::new_lexer();
-            let prsr = parser::Parser::new(lxr.input(strm));
 
-            //log::info!("{:?}", iter.collect_tokens());
+            // ...
         }
         Err(e) => {
             match e.kind() {
@@ -75,6 +73,8 @@ fn repl() {
             }
         }
 
-        println!("{:?}", lxr.input(Stream::from_str(&input)).collect_tokens());
+        let strm = Stream::from_str(&input);
+
+        // ...
     }
 }
