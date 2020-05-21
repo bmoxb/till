@@ -95,19 +95,6 @@ pub struct LexIterator<'a, Key, Token> {
     strm: stream::Stream
 }
 
-impl<Key, Token> LexIterator<'_, Key, Token>
-where Key: Copy, Self: Iterator<Item=LexResult<Token>> {
-    /// Collects all yielded tokens (extracted from `LexResult::Success`).
-    pub fn collect_tokens(&mut self) -> Vec<Token> {
-        self.filter_map(|result| {
-            match result {
-                LexResult::Success(_, _, tok) => Some(tok),
-                LexResult::Failure(_, _) => None
-            }
-        }).collect()
-    }
-}
-
 impl<Key, Token> Iterator for LexIterator<'_, Key, Token>
 where Key: Copy + Eq + Hash + Debug,
       Token: Clone + Debug {

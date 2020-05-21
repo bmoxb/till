@@ -2,8 +2,9 @@ pub mod lexer;
 
 use std::collections::HashMap;
 
+/// All lexing tokens yielded by the TILL lexer.
 #[derive(Debug, PartialEq, Clone)]
-pub enum Token {
+pub enum TillToken {
     Newline(usize), // Value is indentation level of the new line.
 
     Identifier(String),
@@ -40,8 +41,9 @@ pub enum Token {
     Tilde // ~
 }
 
+/// The range of state keys used by the TILL lexer.
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
-pub enum Key {
+pub enum TillKey {
     Initial,
     Integer, PotentialReal, Real,
     IdentifierOrKeyword, TypeIdentifier,
@@ -53,13 +55,17 @@ pub enum Key {
     Other
 }
 
-/// Static `lexer::Lexer` type that is specific to the TILL language (i.e. set
-/// up to return TILL tokens and use the appropriate state keys).
-/// Use the `new_lexer` function *once* to create an instance of this type that
-/// has the appropriate states required to lex TILL code.
-pub type TillLexer = lexer::Lexer<'static, Key, Token>;
+/// Type alias for the generic lexer but with the TILL-specific Key and Token
+/// type arguments.
+pub type TillLexer<'a> = lexer::Lexer<'a, TillKey, TillToken>;
 
-pub fn new_lexer() -> TillLexer {
+pub type TillLexIterator<'a> = lexer::LexIterator<'a, TillKey, TillToken>;
+
+/// Returns a static `lexer::Lexer` type that is specific to the TILL language
+/// (i.e. set up to return TILL tokens and use the appropriate state keys).
+/// Use this function *once* to create an instance of this type that has the
+/// appropriate states required to lex TILL code.
+pub fn new_till_lexer<'a>() -> lexer::Lexer<'a, TillKey, TillToken> {
     log::info!("Setting up lexer states and transitions...");
 
     let mut states = HashMap::new();
@@ -67,45 +73,45 @@ pub fn new_lexer() -> TillLexer {
     /* INITIAL STATE */
 
     states.insert(
-        Key::Initial,
+        TillKey::Initial,
         lexer::State {
             parse: lexer::Parse::Invalid,
             transitions: vec![
                 lexer::Transition {
                     match_by: lexer::Match::ByFunction(&match_digit),
-                    to: lexer::Dest::To(Key::Integer)
+                    to: lexer::Dest::To(TillKey::Integer)
                 },
                 lexer::Transition {
                     match_by: lexer::Match::ByFunction(&|c| c.is_ascii_lowercase() || *c == '_'),
-                    to: lexer::Dest::To(Key::IdentifierOrKeyword)
+                    to: lexer::Dest::To(TillKey::IdentifierOrKeyword)
                 },
                 lexer::Transition {
                     match_by: lexer::Match::ByFunction(&|c| c.is_ascii_uppercase()),
-                    to: lexer::Dest::To(Key::TypeIdentifier)
+                    to: lexer::Dest::To(TillKey::TypeIdentifier)
                 },
                 lexer::Transition {
                     match_by: lexer::Match::ByChar('\n'),
-                    to: lexer::Dest::To(Key::Newline)
+                    to: lexer::Dest::To(TillKey::Newline)
                 },
                 lexer::Transition {
                     match_by: lexer::Match::ByChar('"'),
-                    to: lexer::Dest::To(Key::PotentialString)
+                    to: lexer::Dest::To(TillKey::PotentialString)
                 },
                 lexer::Transition {
                     match_by: lexer::Match::ByChar('\''),
-                    to: lexer::Dest::To(Key::BeginChar)
+                    to: lexer::Dest::To(TillKey::BeginChar)
                 },
                 lexer::Transition {
                     match_by: lexer::Match::ByChar('-'),
-                    to: lexer::Dest::To(Key::Minus)
+                    to: lexer::Dest::To(TillKey::Minus)
                 },
                 lexer::Transition {
                     match_by: lexer::Match::ByChar('='),
-                    to: lexer::Dest::To(Key::Equals)
+                    to: lexer::Dest::To(TillKey::Equals)
                 },
                 lexer::Transition {
                     match_by: lexer::Match::ByChars(vec!['(', ')', '[', ']', '>', '<', ',', '+', '/', '*', '^', '!', '~']),
-                    to: lexer::Dest::To(Key::Other)
+                    to: lexer::Dest::To(TillKey::Other)
                 }
             ]
         }
@@ -114,13 +120,13 @@ pub fn new_lexer() -> TillLexer {
     /* NUMBER LITERALS */
 
     states.insert(
-        Key::Integer,
+        TillKey::Integer,
         lexer::State {
             parse: lexer::Parse::ByFunction(&parse_number_literal),
             transitions: vec![
                 lexer::Transition {
                     match_by: lexer::Match::ByChar('.'),
-                    to: lexer::Dest::To(Key::PotentialReal)
+                    to: lexer::Dest::To(TillKey::PotentialReal)
                 },
                 lexer::Transition {
                     match_by: lexer::Match::ByFunction(&match_digit),
@@ -131,20 +137,20 @@ pub fn new_lexer() -> TillLexer {
     );
 
     states.insert(
-        Key::PotentialReal,
+        TillKey::PotentialReal,
         lexer::State {
             parse: lexer::Parse::Invalid, // Digit(s), decimal point, without further digit(s) is invalid.
             transitions: vec![
                 lexer::Transition {
                     match_by: lexer::Match::ByFunction(&match_digit),
-                    to: lexer::Dest::To(Key::Real)
+                    to: lexer::Dest::To(TillKey::Real)
                 }
             ]
         }
     );
 
     states.insert(
-        Key::Real,
+        TillKey::Real,
         lexer::State {
             parse: lexer::Parse::ByFunction(&parse_number_literal),
             transitions: vec![
@@ -159,16 +165,16 @@ pub fn new_lexer() -> TillLexer {
     /* KEYWORDS, IDENTIFIERS & TYPE IDENTIFIERS */
 
     states.insert(
-        Key::IdentifierOrKeyword,
+        TillKey::IdentifierOrKeyword,
         lexer::State {
             parse: lexer::Parse::ByFunction(&|lexeme| {
                 match lexeme {
-                    "if" => Token::IfKeyword,
-                    "else" => Token::ElseKeyword,
-                    "while" => Token::WhileKeyword,
-                    "true" => Token::TrueKeyword,
-                    "false" => Token::FalseKeyword,
-                    x => Token::Identifier(x.to_string())
+                    "if" => TillToken::IfKeyword,
+                    "else" => TillToken::ElseKeyword,
+                    "while" => TillToken::WhileKeyword,
+                    "true" => TillToken::TrueKeyword,
+                    "false" => TillToken::FalseKeyword,
+                    x => TillToken::Identifier(x.to_string())
                 }
             }),
             transitions: vec![
@@ -181,10 +187,10 @@ pub fn new_lexer() -> TillLexer {
     );
 
     states.insert(
-        Key::TypeIdentifier,
+        TillKey::TypeIdentifier,
         lexer::State {
             parse: lexer::Parse::ByFunction(&|lexeme| {
-                Token::TypeIdentifier(lexeme.to_string())
+                TillToken::TypeIdentifier(lexeme.to_string())
             }),
             transitions: vec![
                 lexer::Transition {
@@ -198,11 +204,11 @@ pub fn new_lexer() -> TillLexer {
     /* NEWLINES & INDENTATION */
 
     states.insert(
-        Key::Newline,
+        TillKey::Newline,
         lexer::State {
             parse: lexer::Parse::ByFunction(&|lexeme| {
                 let line = lexeme.split("\n").last().unwrap(); // Ignore any empty lines, only consider final populated line.
-                Token::Newline(line.matches("\t").count())
+                TillToken::Newline(line.matches("\t").count())
             }),
             transitions: vec![
                 lexer::Transition {
@@ -216,17 +222,17 @@ pub fn new_lexer() -> TillLexer {
     /* STRING LITERALS */
 
     states.insert(
-        Key::PotentialString,
+        TillKey::PotentialString,
         lexer::State {
             parse: lexer::Parse::Invalid,
             transitions: vec![
                 lexer::Transition {
                     match_by: lexer::Match::ByChar('\\'),
-                    to: lexer::Dest::To(Key::StringEscapeSequence)
+                    to: lexer::Dest::To(TillKey::StringEscapeSequence)
                 },
                 lexer::Transition {
                     match_by: lexer::Match::ByChar('"'),
-                    to: lexer::Dest::To(Key::StringLiteral)
+                    to: lexer::Dest::To(TillKey::StringLiteral)
                 },
                 lexer::Transition {
                     match_by: lexer::Match::Any, // I.e. not \ or " character
@@ -237,20 +243,20 @@ pub fn new_lexer() -> TillLexer {
     );
 
     states.insert(
-        Key::StringEscapeSequence,
+        TillKey::StringEscapeSequence,
         lexer::State {
             parse: lexer::Parse::Invalid,
             transitions: vec![
                 lexer::Transition {
                     match_by: lexer::Match::ByChars(vec!['n', 't', '\\', '"']),
-                    to: lexer::Dest::To(Key::PotentialString)
+                    to: lexer::Dest::To(TillKey::PotentialString)
                 }
             ]
         }
     );
 
     states.insert(
-        Key::StringLiteral,
+        TillKey::StringLiteral,
         lexer::State {
             parse: lexer::Parse::ByFunction(&|lexeme| {
                 let mut literal = String::new();
@@ -266,7 +272,7 @@ pub fn new_lexer() -> TillLexer {
                     }
                 }
 
-                Token::StringLiteral(literal)
+                TillToken::StringLiteral(literal)
             }),
             transitions: vec![]
         }
@@ -275,57 +281,57 @@ pub fn new_lexer() -> TillLexer {
     /* CHARACTER LITERALS */
 
     states.insert(
-        Key::BeginChar,
+        TillKey::BeginChar,
         lexer::State {
             parse: lexer::Parse::Invalid,
             transitions: vec![
                 lexer::Transition {
                     match_by: lexer::Match::ByChar('\''),
-                    to: lexer::Dest::To(Key::CharLiteral)
+                    to: lexer::Dest::To(TillKey::CharLiteral)
                 },
                 lexer::Transition {
                     match_by: lexer::Match::ByChar('\\'),
-                    to: lexer::Dest::To(Key::CharEscapeSequence)
+                    to: lexer::Dest::To(TillKey::CharEscapeSequence)
                 },
                 lexer::Transition {
                     match_by: lexer::Match::Any,
-                    to: lexer::Dest::To(Key::CharEnd)
+                    to: lexer::Dest::To(TillKey::CharEnd)
                 }
             ]
         }
     );
 
     states.insert(
-        Key::CharEnd,
+        TillKey::CharEnd,
         lexer::State {
             parse: lexer::Parse::Invalid,
             transitions: vec![
                 lexer::Transition {
                     match_by: lexer::Match::ByChar('\''),
-                    to: lexer::Dest::To(Key::CharLiteral)
+                    to: lexer::Dest::To(TillKey::CharLiteral)
                 }
             ]
         }
     );
 
     states.insert(
-        Key::CharEscapeSequence,
+        TillKey::CharEscapeSequence,
         lexer::State {
             parse: lexer::Parse::Invalid,
             transitions: vec![
                 lexer::Transition {
                     match_by: lexer::Match::ByChars(vec!['n', 't', '\\', '\'']),
-                    to: lexer::Dest::To(Key::CharEnd)
+                    to: lexer::Dest::To(TillKey::CharEnd)
                 }
             ]
         }
     );
 
     states.insert(
-        Key::CharLiteral,
+        TillKey::CharLiteral,
         lexer::State {
             parse: lexer::Parse::ByFunction(&|lexeme| {
-                Token::CharLiteral(
+                TillToken::CharLiteral(
                     if lexeme == "''" { '\0' }
                     else {
                         let mut chars = lexeme.chars();
@@ -343,13 +349,13 @@ pub fn new_lexer() -> TillLexer {
     /* MINUS */
 
     states.insert(
-        Key::Minus,
+        TillKey::Minus,
         lexer::State {
-            parse: lexer::Parse::To(Token::Minus),
+            parse: lexer::Parse::To(TillToken::Minus),
             transitions: vec![
                 lexer::Transition {
                     match_by: lexer::Match::ByChar('>'), // Lexeme will be: ->
-                    to: lexer::Dest::To(Key::Other)
+                    to: lexer::Dest::To(TillKey::Other)
                 }
             ]
         }
@@ -358,13 +364,13 @@ pub fn new_lexer() -> TillLexer {
     /* EQUALS */
 
     states.insert(
-        Key::Equals,
+        TillKey::Equals,
         lexer::State {
-            parse: lexer::Parse::To(Token::Equals),
+            parse: lexer::Parse::To(TillToken::Equals),
             transitions: vec![
                 lexer::Transition {
                     match_by: lexer::Match::ByChar('='), // Lexeme will be: ==
-                    to: lexer::Dest::To(Key::Other)
+                    to: lexer::Dest::To(TillKey::Other)
                 }
             ]
         }
@@ -374,26 +380,26 @@ pub fn new_lexer() -> TillLexer {
     /* OTHER TOKENS */
 
     states.insert(
-        Key::Other,
+        TillKey::Other,
         lexer::State {
             parse: lexer::Parse::ByFunction(&|lexeme| {
                 match lexeme {
-                    "->" => Token::Arrow,
-                    "==" => Token::DoubleEquals,
+                    "->" => TillToken::Arrow,
+                    "==" => TillToken::DoubleEquals,
 
-                    "(" => Token::BracketOpen,
-                    ")" => Token::BracketClose,
-                    "[" => Token::BracketSquareOpen,
-                    "]" => Token::BracketSquareClose,
-                    ">" => Token::GreaterThan,
-                    "<" => Token::LessThan,
-                    "," => Token::Comma,
-                    "+" => Token::Plus,
-                    "/" => Token::Slash,
-                    "*" => Token::Star,
-                    "^" => Token::Caret,
-                    "!" => Token::ExclaimationMark,
-                    "~" => Token::Tilde,
+                    "(" => TillToken::BracketOpen,
+                    ")" => TillToken::BracketClose,
+                    "[" => TillToken::BracketSquareOpen,
+                    "]" => TillToken::BracketSquareClose,
+                    ">" => TillToken::GreaterThan,
+                    "<" => TillToken::LessThan,
+                    "," => TillToken::Comma,
+                    "+" => TillToken::Plus,
+                    "/" => TillToken::Slash,
+                    "*" => TillToken::Star,
+                    "^" => TillToken::Caret,
+                    "!" => TillToken::ExclaimationMark,
+                    "~" => TillToken::Tilde,
                     _ => panic!()
                 }
             }),
@@ -403,12 +409,12 @@ pub fn new_lexer() -> TillLexer {
 
     let ignore = vec![' ']; // Spaces can be ignored when in the initial state.
 
-    lexer::Lexer::new(states, Key::Initial, ignore)
+    lexer::Lexer::new(states, TillKey::Initial, ignore)
 }
 
 fn match_digit(c: &char) -> bool { c.is_digit(10) }
 fn match_alphanumeric_or_underscore(c: &char) -> bool { c.is_ascii_alphanumeric() || *c == '_' }
-fn parse_number_literal(s: &str) -> Token { Token::NumberLiteral(s.parse().unwrap()) }
+fn parse_number_literal(s: &str) -> TillToken { TillToken::NumberLiteral(s.parse().unwrap()) }
 
 fn char_to_escape_sequence(chr: char) -> char {
     match chr {
@@ -424,8 +430,8 @@ mod tests {
     use super::*;
     use crate::stream::Stream;
 
-    impl lexer::LexIterator<'_, Key, Token> {
-        fn assert_next(&mut self, expected_tok: Token) -> &mut Self {
+    impl TillLexIterator<'_> {
+        fn assert_next(&mut self, expected_tok: TillToken) -> &mut Self {
             if let Some(lexer::LexResult::Success(_, _, tok)) = self.next() {
                 assert_eq!(tok, expected_tok);
             }
@@ -448,99 +454,99 @@ mod tests {
 
     #[test]
     fn test_ignored_characters() {
-        new_lexer().input(Stream::from_str("  5 6.2   "))
-        .assert_next(Token::NumberLiteral(5.0))
-        .assert_next(Token::NumberLiteral(6.2))
+        new_till_lexer().input(Stream::from_str("  5 6.2   "))
+        .assert_next(TillToken::NumberLiteral(5.0))
+        .assert_next(TillToken::NumberLiteral(6.2))
         .assert_end_of_stream();
     }
 
     #[test]
     fn test_number_literals() {
-        new_lexer().input(Stream::from_str("12.3 12."))
-        .assert_next(Token::NumberLiteral(12.3))
+        new_till_lexer().input(Stream::from_str("12.3 12."))
+        .assert_next(TillToken::NumberLiteral(12.3))
         .assert_failure_next("12.");
     }
 
     #[test]
     fn test_identifiers() {
-        new_lexer().input(Stream::from_str("someTHIng _with5and6   Type Nice1_"))
-        .assert_next(Token::Identifier("someTHIng".to_string()))
-        .assert_next(Token::Identifier("_with5and6".to_string()))
-        .assert_next(Token::TypeIdentifier("Type".to_string()))
-        .assert_next(Token::TypeIdentifier("Nice1_".to_string()));
+        new_till_lexer().input(Stream::from_str("someTHIng _with5and6   Type Nice1_"))
+        .assert_next(TillToken::Identifier("someTHIng".to_string()))
+        .assert_next(TillToken::Identifier("_with5and6".to_string()))
+        .assert_next(TillToken::TypeIdentifier("Type".to_string()))
+        .assert_next(TillToken::TypeIdentifier("Nice1_".to_string()));
     }
 
     #[test]
     fn test_keywords() {
-        new_lexer().input(Stream::from_str("if else  while  true false"))
-        .assert_next(Token::IfKeyword)
-        .assert_next(Token::ElseKeyword)
-        .assert_next(Token::WhileKeyword)
-        .assert_next(Token::TrueKeyword)
-        .assert_next(Token::FalseKeyword);
+        new_till_lexer().input(Stream::from_str("if else  while  true false"))
+        .assert_next(TillToken::IfKeyword)
+        .assert_next(TillToken::ElseKeyword)
+        .assert_next(TillToken::WhileKeyword)
+        .assert_next(TillToken::TrueKeyword)
+        .assert_next(TillToken::FalseKeyword);
     }
 
     #[test]
     fn test_indentation() {
-        new_lexer().input(Stream::from_str("0\n\t1\n\t\t2\n0   \n\t\t\n\t"))
-        .assert_next(Token::NumberLiteral(0.0))
-        .assert_next(Token::Newline(1))
-        .assert_next(Token::NumberLiteral(1.0))
-        .assert_next(Token::Newline(2))
-        .assert_next(Token::NumberLiteral(2.0))
-        .assert_next(Token::Newline(0))
-        .assert_next(Token::NumberLiteral(0.0))
+        new_till_lexer().input(Stream::from_str("0\n\t1\n\t\t2\n0   \n\t\t\n\t"))
+        .assert_next(TillToken::NumberLiteral(0.0))
+        .assert_next(TillToken::Newline(1))
+        .assert_next(TillToken::NumberLiteral(1.0))
+        .assert_next(TillToken::Newline(2))
+        .assert_next(TillToken::NumberLiteral(2.0))
+        .assert_next(TillToken::Newline(0))
+        .assert_next(TillToken::NumberLiteral(0.0))
 
-        .assert_next(Token::Newline(1))
+        .assert_next(TillToken::Newline(1))
         .assert_end_of_stream();
     }
 
     #[test]
     fn test_string_literals() {
-        new_lexer().input(Stream::from_str("\"\" \"hello\\tworld\" \"世界\" \"\\n\\t\\\"\\\\\""))
-        .assert_next(Token::StringLiteral("".to_string()))
-        .assert_next(Token::StringLiteral("hello\tworld".to_string()))
-        .assert_next(Token::StringLiteral("世界".to_string()))
-        .assert_next(Token::StringLiteral("\n\t\"\\".to_string()));
+        new_till_lexer().input(Stream::from_str("\"\" \"hello\\tworld\" \"世界\" \"\\n\\t\\\"\\\\\""))
+        .assert_next(TillToken::StringLiteral("".to_string()))
+        .assert_next(TillToken::StringLiteral("hello\tworld".to_string()))
+        .assert_next(TillToken::StringLiteral("世界".to_string()))
+        .assert_next(TillToken::StringLiteral("\n\t\"\\".to_string()));
     }
 
     #[test]
     fn test_char_literals() {
-        new_lexer().input(Stream::from_str("'' 'a' 'わ' '\\'' '\\n'"))
-        .assert_next(Token::CharLiteral('\0'))
-        .assert_next(Token::CharLiteral('a'))
-        .assert_next(Token::CharLiteral('わ'))
-        .assert_next(Token::CharLiteral('\''))
-        .assert_next(Token::CharLiteral('\n'));
+        new_till_lexer().input(Stream::from_str("'' 'a' 'わ' '\\'' '\\n'"))
+        .assert_next(TillToken::CharLiteral('\0'))
+        .assert_next(TillToken::CharLiteral('a'))
+        .assert_next(TillToken::CharLiteral('わ'))
+        .assert_next(TillToken::CharLiteral('\''))
+        .assert_next(TillToken::CharLiteral('\n'));
     }
 
     #[test]
     fn test_minus_and_arrow() {
-        new_lexer().input(Stream::from_str("- ->"))
-        .assert_next(Token::Minus)
-        .assert_next(Token::Arrow);
+        new_till_lexer().input(Stream::from_str("- ->"))
+        .assert_next(TillToken::Minus)
+        .assert_next(TillToken::Arrow);
     }
 
     #[test]
     fn test_equals_and_double_equals() {
-        new_lexer().input(Stream::from_str("= =="))
-        .assert_next(Token::Equals)
-        .assert_next(Token::DoubleEquals);
+        new_till_lexer().input(Stream::from_str("= =="))
+        .assert_next(TillToken::Equals)
+        .assert_next(TillToken::DoubleEquals);
     }
 
     #[test]
     fn test_other_tokens() {
-        new_lexer().input(Stream::from_str("() [] > < , + / * ^ ! ~"))
-        .assert_next(Token::BracketOpen).assert_next(Token::BracketClose)
-        .assert_next(Token::BracketSquareOpen).assert_next(Token::BracketSquareClose)
-        .assert_next(Token::GreaterThan)
-        .assert_next(Token::LessThan)
-        .assert_next(Token::Comma)
-        .assert_next(Token::Plus)
-        .assert_next(Token::Slash)
-        .assert_next(Token::Star)
-        .assert_next(Token::Caret)
-        .assert_next(Token::ExclaimationMark)
-        .assert_next(Token::Tilde);
+        new_till_lexer().input(Stream::from_str("() [] > < , + / * ^ ! ~"))
+        .assert_next(TillToken::BracketOpen).assert_next(TillToken::BracketClose)
+        .assert_next(TillToken::BracketSquareOpen).assert_next(TillToken::BracketSquareClose)
+        .assert_next(TillToken::GreaterThan)
+        .assert_next(TillToken::LessThan)
+        .assert_next(TillToken::Comma)
+        .assert_next(TillToken::Plus)
+        .assert_next(TillToken::Slash)
+        .assert_next(TillToken::Star)
+        .assert_next(TillToken::Caret)
+        .assert_next(TillToken::ExclaimationMark)
+        .assert_next(TillToken::Tilde);
     }
 }

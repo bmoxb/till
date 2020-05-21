@@ -2,8 +2,6 @@ mod stream;
 mod lexing;
 mod parsing;
 
-use stream::Stream;
-
 use std::{ env, fs, io, io::BufRead, io::Write, path::Path };
 
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
@@ -13,13 +11,15 @@ fn main() {
     #[cfg(debug_assertions)]
     pretty_env_logger::init_timed();
 
+    let lxr = lexing::new_till_lexer();
+
     match env::args().nth(1) {
-        Some(path) => execute_file(Path::new(&path)),
-        None => repl()
+        Some(path) => execute_by_file(Path::new(&path), &lxr),
+        None => execute_by_repl(&lxr)
     }
 }
 
-fn execute_file(relative_path: &Path) {
+fn execute_by_file(relative_path: &Path, lxr: &lexing::TillLexer) {
     log::info!("Executing TILL file...");
 
     let path = match relative_path.canonicalize() {
@@ -31,9 +31,7 @@ fn execute_file(relative_path: &Path) {
         Ok(file) => {
             log::info!("Successfully opened file: {}", path.display());
 
-            let strm = Stream::from_file(file);
-
-            // ...
+            execute(stream::Stream::from_file(file), &lxr);
         }
         Err(e) => {
             match e.kind() {
@@ -48,10 +46,8 @@ fn execute_file(relative_path: &Path) {
     }
 }
 
-fn repl() {
+fn execute_by_repl(lxr: &lexing::TillLexer) {
     log::info!("Beginning REPL...");
-
-    let lxr = lexing::new_lexer();
 
     println!("Tiny Interpreted Lightweight Language (TILL) {}", VERSION);
 
@@ -73,8 +69,18 @@ fn repl() {
             }
         }
 
-        let strm = Stream::from_str(&input);
-
-        // ...
+        execute(stream::Stream::from_str(&input), lxr);
     }
+}
+
+fn execute(strm: stream::Stream, lxr: &lexing::TillLexer) {
+    log::info!("Lexing...");
+    let tokens = lxr.input(strm);
+
+    log::info!("Parsing...");
+    let syntax_tree = parsing::input(tokens);
+
+    log::info!("Type checking... TODO!");
+
+    log::info!("Executing... TODO!");
 }

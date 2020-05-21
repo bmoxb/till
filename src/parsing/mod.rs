@@ -1,26 +1,22 @@
-mod parser;
+pub mod ast;
 
 use crate::lexing;
 
-/// Static `parser::Parser` type that is specific to the TILL language (i.e. set
-/// up to use the TILL lexer).
-/// Use the `new_parser` function *once* to create an instance of this type (will
-/// use `lexing::new_lexer` function to automatically create an appropriate lexer
-/// to be used by the new parser).
-pub type TillParser = parser::Parser<'static, lexing::Key, lexing::Token>;
-
-pub fn new_parser() -> TillParser {
-    let lxr = lexing::new_lexer();
-    log::info!("Using newly-made lexer instance to create parser instance...");
-    parser::Parser::new(lxr)
+/// Returns an iterator that yields abstract syntax representations for each
+/// TILL statement parsed from the given token stream.
+pub fn input<'a>(lex_iterator: lexing::TillLexIterator<'a>) -> ParseIterator<'a> {
+    ParseIterator { lex_iterator }
 }
 
-mod ast {
-    pub enum Stat {
-        // ...
-    }
-    
-    pub enum Expr {
-        // ...
+pub struct ParseIterator<'a> {
+    lex_iterator: lexing::TillLexIterator<'a>
+}
+
+impl Iterator for ParseIterator<'_> {
+    type Item = ast::Stat;
+
+    /// Return the next AST statement parsed from the given token stream.
+    fn next(&mut self) -> Option<ast::Stat> {
+        None
     }
 }
