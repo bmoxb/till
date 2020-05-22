@@ -1,5 +1,5 @@
 use crate::stream;
-use std::{ collections::HashMap, hash::Hash, fmt::Debug };
+use std::{ fmt, fmt::Debug, collections::HashMap, hash::Hash };
 
 /// Describes a lexing state. Can include any number of transitions to other
 /// states. When the lexer finds no appropriate transitions from this state,
@@ -71,41 +71,58 @@ where Key: Copy + Eq + Hash + Debug {
         }
     }
 
-    pub fn input(&self, strm: stream::Stream) -> LexIterator<'_, Key, Token> {
-        LexIterator {
+    /// Consumes an input stream to produce an iterator that yields the tokens
+    /// found through the analysis of said stream.
+    pub fn input(&self, strm: stream::Stream) -> LexTokenIterator<'_, Key, Token> {
+        LexTokenIterator {
             lxr: self,
             strm
         }
     }
 }
 
-/// Indicates the result of attempting to find the next token - either success
-/// (includes the token and the valid lexeme) or failure (just the invalid lexeme
-/// and obviously no token).
+/// Holds a token (indicates the type and contains any extra data), a raw lexeme
+/// string, and the stream position from where the token was found.
 #[derive(Debug, PartialEq)]
-pub enum LexResult<Token> {
-    Success(String, stream::Position, Token),
-    Failure(String, stream::Position)
+pub struct LexToken<Token>(pub Token, pub String, pub stream::Position);
+
+#[derive(Debug, PartialEq)]
+pub enum LexFailure {
+    UnexpectedChar(char, String, stream::Position),
+    UnexpectedEof(String, stream::Position)
+}
+
+impl fmt::Display for LexFailure {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            LexFailure::UnexpectedChar(unexpected_char, lexeme, pos) => write!(f, "Encountered unexpected character {:?} while analysing lexeme {:?} at {}", unexpected_char, lexeme, pos),
+            LexFailure::UnexpectedEof(lexeme, pos) => write!(f, "Encountered unexpected end of file while analysing lexeme {:?} at {}", lexeme, pos)
+        }
+    }
 }
 
 /// Iterator that yields `LexResult` instances containing a lexeme, stream potition,
 /// and (assuming the lexeme is valid) a token. Created by the `Lexer::input` method.
-pub struct LexIterator<'a, Key, Token> {
+pub struct LexTokenIterator<'a, Key, Token> {
     lxr: &'a Lexer<'a, Key, Token>,
     strm: stream::Stream
 }
 
-impl<Key, Token> Iterator for LexIterator<'_, Key, Token>
+impl<Key, Token> Iterator for LexTokenIterator<'_, Key, Token>
 where Key: Copy + Eq + Hash + Debug,
       Token: Clone + Debug {
-    type Item = LexResult<Token>;
+    type Item = Result<LexToken<Token>, LexFailure>;
 
     /// Return the next token and lexeme in the current input stream.
     /// Returns `None` should the end of the current input stream have been
     /// reached.
     fn next(&mut self) -> Option<Self::Item> {
+        log::info!("-- Next Token --");
+
         let mut current_key = self.lxr.initial_state_key;
         let mut lexeme = String::new();
+
+        let mut unexpected_char: Option<char> = None;
 
         while let Some(chr) = self.strm.peek() {
             log::trace!("Peeking character: {:?}", chr);
@@ -129,6 +146,7 @@ where Key: Copy + Eq + Hash + Debug,
                 }
                 else {
                     log::trace!("Character cannot be ignored - breaking...");
+                    unexpected_char = Some(chr);
                     break;
                 }
             }
@@ -136,7 +154,7 @@ where Key: Copy + Eq + Hash + Debug,
 
         if !lexeme.is_empty() {
             log::trace!("Attempting to parse lexeme...");
-            Some(parse_lexeme(lexeme, self.strm.get_pos(), get_state(&self.lxr.states, current_key)))
+            Some(parse_lexeme(lexeme, unexpected_char, self.strm.get_pos().clone(), get_state(&self.lxr.states, current_key)))
         }
         else { None } // Nothing added to lexeme - assume stream had already reached end.
     }
@@ -183,10 +201,10 @@ where Key: Copy + Debug {
 /// Attempt to convert a lexeme into a token, assuming a given lexeme and final
 /// lexer state (no more possible transitions could be made or reached end of
 /// input stream).
-fn parse_lexeme<Key, Token>(lexeme: String, pos: &stream::Position, final_state: &State<Key, Token>) -> LexResult<Token>
+fn parse_lexeme<Key, Token>(lexeme: String, next_chr: Option<char>, pos: stream::Position, final_state: &State<Key, Token>) -> Result<LexToken<Token>, LexFailure>
 where Token: Clone + Debug {
     let potential_tok = match &final_state.parse {
-        Parse::To(t) => { Some(t.clone()) }
+        Parse::To(tok) => { Some(tok.clone()) }
         Parse::ByFunction(func) => { Some(func(&lexeme)) }
         Parse::Invalid => { None }
     };
@@ -194,11 +212,20 @@ where Token: Clone + Debug {
     match potential_tok {
         Some(tok) => {
             log::debug!("At {} - lexeme {:?} parsed to token: {:?}", pos, lexeme, tok);
-            LexResult::Success(lexeme, pos.clone(), tok)
+            Ok(LexToken(tok, lexeme, pos))
         }
         None => {
             log::debug!("At {} - could not parse to token from lexeme: {:?}", pos, lexeme);
-            LexResult::Failure(lexeme, pos.clone())
+            Err(match next_chr {
+                Some(chr) => {
+                    log::trace!("Failure to parse to token a result of unexpected character: {:?}", chr);
+                    LexFailure::UnexpectedChar(chr, lexeme, pos)
+                }
+                None => {
+                    log::trace!("Failure to parse to a token a result of reaching the stream end unexpectedly");
+                    LexFailure::UnexpectedEof(lexeme, pos)
+                }
+            })
         }
     }
 }

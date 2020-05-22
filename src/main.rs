@@ -75,12 +75,23 @@ fn execute_by_repl(lxr: &lexing::TillLexer) {
 
 fn execute(strm: stream::Stream, lxr: &lexing::TillLexer) {
     log::info!("Lexing...");
-    let tokens = lxr.input(strm);
+    
+    let tokens_iter = lxr.input(strm).filter_map(|value| {
+        match value {
+            Ok(lex_tok) => Some(lex_tok),
+            Err(e) => {
+                println!("LEXICAL ERROR: {}", e);
+                None
+            }
+        }
+    });
 
+/*
     log::info!("Parsing...");
     let syntax_tree = parsing::input(tokens);
 
     log::info!("Type checking... TODO!");
 
     log::info!("Executing... TODO!");
+*/
 }

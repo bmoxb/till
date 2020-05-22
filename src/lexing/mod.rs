@@ -59,7 +59,7 @@ pub enum TillKey {
 /// type arguments.
 pub type TillLexer<'a> = lexer::Lexer<'a, TillKey, TillToken>;
 
-pub type TillLexIterator<'a> = lexer::LexIterator<'a, TillKey, TillToken>;
+pub type TillLexTokenIterator<'a> = lexer::LexTokenIterator<'a, TillKey, TillToken>;
 
 /// Returns a static `lexer::Lexer` type that is specific to the TILL language
 /// (i.e. set up to return TILL tokens and use the appropriate state keys).
@@ -430,20 +430,34 @@ mod tests {
     use super::*;
     use crate::stream::Stream;
 
-    impl TillLexIterator<'_> {
+    // Define some helper methods to make tests easier to write. These methods on
+    // TillLexTokenIterator will only exist in test builds of the program.
+    impl TillLexTokenIterator<'_> {
         fn assert_next(&mut self, expected_tok: TillToken) -> &mut Self {
-            if let Some(lexer::LexResult::Success(_, _, tok)) = self.next() {
+            if let Some(Ok(lexer::LexToken(tok, ..))) = self.next() {
                 assert_eq!(tok, expected_tok);
             }
-            else { panic!("Expected LexResult::Success variant!"); }
+            else { panic!("Expected Ok(LexToken(..))"); }
             self
         }
-    
-        fn assert_failure_next(&mut self, expect_lexeme: &str) -> &mut Self {
-            if let Some(lexer::LexResult::Failure(lexeme, _)) = self.next() {
-                assert_eq!(lexeme, expect_lexeme.to_string());
+
+        fn assert_unexpected_char_next(&mut self, expected_chr: char) -> &mut Self {
+            let next = self.next().unwrap();
+            
+            if let Err(lexer::LexFailure::UnexpectedChar(chr, ..)) = next {
+                assert_eq!(chr, expected_chr);
             }
-            else { panic!("Expected LexResult::Failure variant!"); }
+            else { panic!("Expected Err(LexFailure::UnexpectedChar(..)) - not {:?}", next); }
+            
+            self
+        }
+
+        fn assert_unexpected_eof_next(&mut self) -> &mut Self {
+            let next = self.next().unwrap();
+
+            if let Err(lexer::LexFailure::UnexpectedEof(..)) = next {}
+            else { panic!("Expected Err(LexFailure::UnexpectedEof(..)) - not {:?}", next); }
+    
             self
         }
     
@@ -464,7 +478,7 @@ mod tests {
     fn test_number_literals() {
         new_till_lexer().input(Stream::from_str("12.3 12."))
         .assert_next(TillToken::NumberLiteral(12.3))
-        .assert_failure_next("12.");
+        .assert_unexpected_eof_next();
     }
 
     #[test]
@@ -503,11 +517,12 @@ mod tests {
 
     #[test]
     fn test_string_literals() {
-        new_till_lexer().input(Stream::from_str("\"\" \"hello\\tworld\" \"世界\" \"\\n\\t\\\"\\\\\""))
+        new_till_lexer().input(Stream::from_str("\"\" \"hello\\tworld\" \"世界\" \"\\n\\t\\\"\\\\\" \"not terminated..."))
         .assert_next(TillToken::StringLiteral("".to_string()))
         .assert_next(TillToken::StringLiteral("hello\tworld".to_string()))
         .assert_next(TillToken::StringLiteral("世界".to_string()))
-        .assert_next(TillToken::StringLiteral("\n\t\"\\".to_string()));
+        .assert_next(TillToken::StringLiteral("\n\t\"\\".to_string()))
+        .assert_unexpected_eof_next();
     }
 
     #[test]
@@ -548,5 +563,13 @@ mod tests {
         .assert_next(TillToken::Caret)
         .assert_next(TillToken::ExclaimationMark)
         .assert_next(TillToken::Tilde);
+    }
+    
+    #[test]
+    fn test_lexing_errors() {
+        new_till_lexer().input(Stream::from_str("10.a 10."))
+        .assert_unexpected_char_next('a')
+        .assert_next(TillToken::Identifier("a".to_string()))
+        .assert_unexpected_eof_next();
     }
 }
