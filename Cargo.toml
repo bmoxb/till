@@ -5,6 +5,7 @@ authors = ["WiredSound <maxoblack@yahoo.com>"]
 edition = "2018"
 
 [dependencies]
+lazy_static = "1.4.0"
 char_stream = "0.1.8"
 log = "0.4.8"
 pretty_env_logger = "0.4.0"

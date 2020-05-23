@@ -1,231 +1,575 @@
 use crate::stream;
-use std::{ fmt, fmt::Debug, collections::HashMap, hash::Hash };
+use std::collections::HashMap;
 
-/// Describes a lexing state. Can include any number of transitions to other
-/// states. When the lexer finds no appropriate transitions from this state,
-/// the specified parsing function or target token of the `parse` member is
-/// used to yield a token. A lexical error is produced if `parse` is of the
-/// `Parse::Invalid` variant when a transition away from this state cannot be made).
-pub struct State<'a, Key, Token> {
-    pub parse: Parse<'a, Token>,
-    pub transitions: Vec<Transition<'a, Key>>
+pub type Token = super::GenericToken<TokenType>;
+
+pub type TokenStream<'a> = super::GenericTokenStream<'a, TokenType, StateKey>;
+
+/// All lexing tokens yielded by the TILL lexer.
+#[derive(Debug, PartialEq, Clone)]
+pub enum TokenType {
+    Newline(usize), // Value is indentation level of the new line.
+
+    Identifier(String),
+    TypeIdentifier(String),
+
+    NumberLiteral(f64),
+    StringLiteral(String),
+    CharLiteral(char),
+
+    IfKeyword, // if
+    ElseKeyword, // else
+    WhileKeyword, // while
+    TrueKeyword, // true
+    FalseKeyword, // false
+
+    BracketOpen, // (
+    BracketClose, // )
+    BracketSquareOpen, // [
+    BracketSquareClose, // ]
+
+    DoubleEquals, // ==
+    Arrow, // ->
+
+    GreaterThan, // >
+    LessThan, // <
+    Comma, // ,
+    Equals, // =
+    Plus, // +
+    Minus, // -
+    Slash, // /
+    Star, // *
+    Caret, // ^
+    ExclaimationMark, // !
+    Tilde // ~
 }
 
-/// When the lexer finds itself in a state that it cannot transition from, it
-/// relies on the the value of State::parse in order to either yield a token or
-/// produce a lexical error.
-pub enum Parse<'a, Token> {
-    To(Token), // For tokens that require no data from the lexeme (e.g. `BracketOpen`).
-    ByFunction(&'a dyn Fn(&str) -> Token), // For tokens with information extracted from lexeme (e.g. `NumberLiteral`, `Identifier`).
-    Invalid // For transitional states that do not produce a token (e.g. `PotentialReal`).
+/// The range of state keys used by the TILL lexer.
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+pub enum StateKey {
+    Initial,
+    Integer, PotentialReal, Real,
+    IdentifierOrKeyword, TypeIdentifier,
+    Newline,
+    PotentialString, StringEscapeSequence, StringLiteral,
+    BeginChar, CharEnd, CharEscapeSequence, CharLiteral,
+    Minus,
+    Equals,
+    Other
 }
 
-/// Describes a transition from one state to another (or itself). The lexer
-/// decides whether this transition can be followed by calling that transition's
-/// matching function with the character most recently read from the stream.
-/// Should the matching funtion return turn true, the lexer will transition
-/// states as specified.
-pub struct Transition<'a, Key> {
-    pub match_by: Match<'a>,
-    pub to: Dest<Key>
-}
-
-/// Criteria by which it is decided whether the lexer should transition state
-/// given the most recent character read from stream.
-pub enum Match<'a> {
-    ByChar(char), // Match by a single character.
-    ByChars(Vec<char>), // Match by a number of possible characters.
-    ByFunction(&'a dyn Fn(&char) -> bool), // Provide read charater to function which will return true if transition should be made.
-    Any // Will always match.
-}
-
-/// Indicates how the lexer should transition state - either to remain on the
-/// current state or to transition to a state with a given key.
-pub enum Dest<Key> {
-    ToSelf, // For remaining on the same state.
-    To(Key) // For transitioning to other states.
-}
-
-/// Type allias for a hash map of state keys to states.
-pub type States<'a, Key, Token> = HashMap<Key, State<'a, Key, Token>>;
-
-/// A generic lexical analysis structure (not specific to lexing TILL - see
-/// `lexing` module for how it is configured to do that).
-/// 
-/// * `Key` - Indicates the type to be used as a hash map key for referencing states.
-/// * `Token` - Indicates the type of tokens yielded by the lexer.
-pub struct Lexer<'a, Key, Token> {
-    states: States<'a, Key, Token>,
-    initial_state_key: Key,
-    ignored: Vec<char>
-}
-
-impl<Key, Token> Lexer<'_, Key, Token>
-where Key: Copy + Eq + Hash + Debug {
-    /// Create a new lexer with it's own unique set of states.
-    pub fn new(states: States<Key, Token>, initial_state_key: Key, ignored: Vec<char>) -> Lexer<'_, Key, Token> {
-        Lexer {
-            states,
-            initial_state_key,
-            ignored
-        }
-    }
-
-    /// Consumes an input stream to produce an iterator that yields the tokens
-    /// found through the analysis of said stream.
-    pub fn input(&self, strm: stream::Stream) -> LexTokenIterator<'_, Key, Token> {
-        LexTokenIterator {
-            lxr: self,
-            strm
-        }
+pub fn input<'a>(strm: stream::Stream) -> TokenStream<'a> {
+    super::GenericTokenStream {
+        strm,
+        settings: &TILL_SETTINGS
     }
 }
 
-/// Holds a token (indicates the type and contains any extra data), a raw lexeme
-/// string, and the stream position from where the token was found.
-#[derive(Debug, PartialEq)]
-pub struct LexToken<Token>(pub Token, pub String, pub stream::Position);
+lazy_static::lazy_static! {
+    static ref TILL_SETTINGS: super::LexerSettings<'static, TokenType, StateKey> = {
+        let mut states = HashMap::new();
 
-#[derive(Debug, PartialEq)]
-pub enum LexFailure {
-    UnexpectedChar(char, String, stream::Position),
-    UnexpectedEof(String, stream::Position)
-}
+        /* INITIAL STATE */
 
-impl fmt::Display for LexFailure {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            LexFailure::UnexpectedChar(unexpected_char, lexeme, pos) => write!(f, "Encountered unexpected character {:?} while analysing lexeme {:?} at {}", unexpected_char, lexeme, pos),
-            LexFailure::UnexpectedEof(lexeme, pos) => write!(f, "Encountered unexpected end of file while analysing lexeme {:?} at {}", lexeme, pos)
-        }
-    }
-}
-
-/// Iterator that yields `LexResult` instances containing a lexeme, stream potition,
-/// and (assuming the lexeme is valid) a token. Created by the `Lexer::input` method.
-pub struct LexTokenIterator<'a, Key, Token> {
-    lxr: &'a Lexer<'a, Key, Token>,
-    strm: stream::Stream
-}
-
-impl<Key, Token> Iterator for LexTokenIterator<'_, Key, Token>
-where Key: Copy + Eq + Hash + Debug,
-      Token: Clone + Debug {
-    type Item = Result<LexToken<Token>, LexFailure>;
-
-    /// Return the next token and lexeme in the current input stream.
-    /// Returns `None` should the end of the current input stream have been
-    /// reached.
-    fn next(&mut self) -> Option<Self::Item> {
-        log::info!("-- Next Token --");
-
-        let mut current_key = self.lxr.initial_state_key;
-        let mut lexeme = String::new();
-
-        let mut unexpected_char: Option<char> = None;
-
-        while let Some(chr) = self.strm.peek() {
-            log::trace!("Peeking character: {:?}", chr);
-            
-            let state = get_state(&self.lxr.states, current_key);
-
-            if let Some(new_key) = transition_state(current_key, &state.transitions, chr) {
-                lexeme.push(chr);
-                self.strm.advance();
-                log::trace!("Character added to lexeme: {:?}", lexeme);
-
-                current_key = new_key;
-                log::trace!("State transitioned made - continuing...");
+        states.insert(
+            StateKey::Initial,
+            super::State {
+                parse: super::Parse::Invalid,
+                transitions: vec![
+                    super::Transition {
+                        match_by: super::Match::ByFunction(&match_digit),
+                        to: super::Dest::To(StateKey::Integer)
+                    },
+                    super::Transition {
+                        match_by: super::Match::ByFunction(&|c| c.is_ascii_lowercase() || *c == '_'),
+                        to: super::Dest::To(StateKey::IdentifierOrKeyword)
+                    },
+                    super::Transition {
+                        match_by: super::Match::ByFunction(&|c| c.is_ascii_uppercase()),
+                        to: super::Dest::To(StateKey::TypeIdentifier)
+                    },
+                    super::Transition {
+                        match_by: super::Match::ByChar('\n'),
+                        to: super::Dest::To(StateKey::Newline)
+                    },
+                    super::Transition {
+                        match_by: super::Match::ByChar('"'),
+                        to: super::Dest::To(StateKey::PotentialString)
+                    },
+                    super::Transition {
+                        match_by: super::Match::ByChar('\''),
+                        to: super::Dest::To(StateKey::BeginChar)
+                    },
+                    super::Transition {
+                        match_by: super::Match::ByChar('-'),
+                        to: super::Dest::To(StateKey::Minus)
+                    },
+                    super::Transition {
+                        match_by: super::Match::ByChar('='),
+                        to: super::Dest::To(StateKey::Equals)
+                    },
+                    super::Transition {
+                        match_by: super::Match::ByChars(vec!['(', ')', '[', ']', '>', '<', ',', '+', '/', '*', '^', '!', '~']),
+                        to: super::Dest::To(StateKey::Other)
+                    }
+                ]
             }
-            else {
-                log::trace!("No appropriate transitions from state {:?} found!", current_key);
+        );
 
-                if self.lxr.ignored.contains(&chr) && current_key == self.lxr.initial_state_key {
-                    log::trace!("As currently in the initial state, character can be ignored - continuing...");
-                    self.strm.advance(); // Advance the stream but don't add ignored character to lexeme.
-                }
-                else {
-                    log::trace!("Character cannot be ignored - breaking...");
-                    unexpected_char = Some(chr);
-                    break;
-                }
+        /* NUMBER LITERALS */
+
+        states.insert(
+            StateKey::Integer,
+            super::State {
+                parse: super::Parse::ByFunction(&parse_number_literal),
+                transitions: vec![
+                    super::Transition {
+                        match_by: super::Match::ByChar('.'),
+                        to: super::Dest::To(StateKey::PotentialReal)
+                    },
+                    super::Transition {
+                        match_by: super::Match::ByFunction(&match_digit),
+                        to: super::Dest::ToSelf
+                    }
+                ]
             }
-        }
+        );
 
-        if !lexeme.is_empty() {
-            log::trace!("Attempting to parse lexeme...");
-            Some(parse_lexeme(lexeme, unexpected_char, self.strm.get_pos().clone(), get_state(&self.lxr.states, current_key)))
-        }
-        else { None } // Nothing added to lexeme - assume stream had already reached end.
-    }
-}
-
-/// Helper method to fetch and unwrap a `State` reference from a `States` hash map.
-fn get_state<'a, Key, Token>(states: &'a States<Key, Token>, key: Key) -> &'a State<'a, Key, Token>
-where Key: Eq + Hash + Debug {
-    states.get(&key).expect(&format!("Lexer transitioned into an undefined state: {:?}", key))
-}
-
-/// Attempt to transition state given a vector of transitions and the current
-/// input character. Will return `Some` holding the next state key should an
-/// appropriate transition be found (whether to the current state or elsewhere).
-/// `None` is returned when no appropriate transitions could be found.
-fn transition_state<Key>(current_key: Key, transitions : &Vec<Transition<Key>>, chr: char) -> Option<Key>
-where Key: Copy + Debug {
-    for transition in transitions {
-        let should_transition = match &transition.match_by {
-            Match::ByChar(expected) => chr == *expected,
-            Match::ByChars(possible) => possible.contains(&chr),
-            Match::ByFunction(func) => func(&chr),
-            Match::Any => true
-        };
-
-        if should_transition {
-            return match &transition.to {
-                Dest::To(new_key) => {
-                    log::trace!("Transitioning state from {:?} to {:?}...", current_key, new_key);
-                    Some(*new_key) // To new state...
-                }
-
-                Dest::ToSelf => {
-                    log::trace!("Remaining in current state {:?}...", current_key);
-                    Some(current_key) // To same state...
-                }
+        states.insert(
+            StateKey::PotentialReal,
+            super::State {
+                parse: super::Parse::Invalid, // Digit(s), decimal point, without further digit(s) is invalid.
+                transitions: vec![
+                    super::Transition {
+                        match_by: super::Match::ByFunction(&match_digit),
+                        to: super::Dest::To(StateKey::Real)
+                    }
+                ]
             }
-        }
-    }
+        );
 
-    None // No appropriate transition found (to self or otherwise) so return nothing.
-}
+        states.insert(
+            StateKey::Real,
+            super::State {
+                parse: super::Parse::ByFunction(&parse_number_literal),
+                transitions: vec![
+                    super::Transition {
+                        match_by: super::Match::ByFunction(&match_digit),
+                        to: super::Dest::ToSelf
+                    }
+                ]
+            }
+        );
 
-/// Attempt to convert a lexeme into a token, assuming a given lexeme and final
-/// lexer state (no more possible transitions could be made or reached end of
-/// input stream).
-fn parse_lexeme<Key, Token>(lexeme: String, next_chr: Option<char>, pos: stream::Position, final_state: &State<Key, Token>) -> Result<LexToken<Token>, LexFailure>
-where Token: Clone + Debug {
-    let potential_tok = match &final_state.parse {
-        Parse::To(tok) => { Some(tok.clone()) }
-        Parse::ByFunction(func) => { Some(func(&lexeme)) }
-        Parse::Invalid => { None }
+        /* KEYWORDS, IDENTIFIERS & TYPE IDENTIFIERS */
+
+        states.insert(
+            StateKey::IdentifierOrKeyword,
+            super::State {
+                parse: super::Parse::ByFunction(&|lexeme| {
+                    match lexeme {
+                        "if" => TokenType::IfKeyword,
+                        "else" => TokenType::ElseKeyword,
+                        "while" => TokenType::WhileKeyword,
+                        "true" => TokenType::TrueKeyword,
+                        "false" => TokenType::FalseKeyword,
+                        x => TokenType::Identifier(x.to_string())
+                    }
+                }),
+                transitions: vec![
+                    super::Transition {
+                        match_by: super::Match::ByFunction(&match_alphanumeric_or_underscore),
+                        to: super::Dest::ToSelf
+                    }
+                ]
+            }
+        );
+
+        states.insert(
+            StateKey::TypeIdentifier,
+            super::State {
+                parse: super::Parse::ByFunction(&|lexeme| {
+                    TokenType::TypeIdentifier(lexeme.to_string())
+                }),
+                transitions: vec![
+                    super::Transition {
+                        match_by: super::Match::ByFunction(&match_alphanumeric_or_underscore),
+                        to: super::Dest::ToSelf
+                    }
+                ]
+            }
+        );
+        
+        /* NEWLINES & INDENTATION */
+
+        states.insert(
+            StateKey::Newline,
+            super::State {
+                parse: super::Parse::ByFunction(&|lexeme| {
+                    let line = lexeme.split("\n").last().unwrap(); // Ignore any empty lines, only consider final populated line.
+                    TokenType::Newline(line.matches("\t").count())
+                }),
+                transitions: vec![
+                    super::Transition {
+                        match_by: super::Match::ByChars(vec!['\n', '\t']),
+                        to: super::Dest::ToSelf
+                    }
+                ]
+            }
+        );
+
+        /* STRING LITERALS */
+
+        states.insert(
+            StateKey::PotentialString,
+            super::State {
+                parse: super::Parse::Invalid,
+                transitions: vec![
+                    super::Transition {
+                        match_by: super::Match::ByChar('\\'),
+                        to: super::Dest::To(StateKey::StringEscapeSequence)
+                    },
+                    super::Transition {
+                        match_by: super::Match::ByChar('"'),
+                        to: super::Dest::To(StateKey::StringLiteral)
+                    },
+                    super::Transition {
+                        match_by: super::Match::Any, // I.e. not \ or " character
+                        to: super::Dest::ToSelf
+                    }
+                ]
+            }
+        );
+
+        states.insert(
+            StateKey::StringEscapeSequence,
+            super::State {
+                parse: super::Parse::Invalid,
+                transitions: vec![
+                    super::Transition {
+                        match_by: super::Match::ByChars(vec!['n', 't', '\\', '"']),
+                        to: super::Dest::To(StateKey::PotentialString)
+                    }
+                ]
+            }
+        );
+
+        states.insert(
+            StateKey::StringLiteral,
+            super::State {
+                parse: super::Parse::ByFunction(&|lexeme| {
+                    let mut literal = String::new();
+
+                    if lexeme != "\"\"" {
+                        let mut iter = lexeme[1..lexeme.len()-1].chars();
+                        
+                        while let Some(chr) = iter.next() {
+                            literal.push(
+                                if chr == '\\' { char_to_escape_sequence(iter.next().unwrap()) }
+                                else { chr }
+                            );
+                        }
+                    }
+
+                    TokenType::StringLiteral(literal)
+                }),
+                transitions: vec![]
+            }
+        );
+
+        /* CHARACTER LITERALS */
+
+        states.insert(
+            StateKey::BeginChar,
+            super::State {
+                parse: super::Parse::Invalid,
+                transitions: vec![
+                    super::Transition {
+                        match_by: super::Match::ByChar('\''),
+                        to: super::Dest::To(StateKey::CharLiteral)
+                    },
+                    super::Transition {
+                        match_by: super::Match::ByChar('\\'),
+                        to: super::Dest::To(StateKey::CharEscapeSequence)
+                    },
+                    super::Transition {
+                        match_by: super::Match::Any,
+                        to: super::Dest::To(StateKey::CharEnd)
+                    }
+                ]
+            }
+        );
+
+        states.insert(
+            StateKey::CharEnd,
+            super::State {
+                parse: super::Parse::Invalid,
+                transitions: vec![
+                    super::Transition {
+                        match_by: super::Match::ByChar('\''),
+                        to: super::Dest::To(StateKey::CharLiteral)
+                    }
+                ]
+            }
+        );
+
+        states.insert(
+            StateKey::CharEscapeSequence,
+            super::State {
+                parse: super::Parse::Invalid,
+                transitions: vec![
+                    super::Transition {
+                        match_by: super::Match::ByChars(vec!['n', 't', '\\', '\'']),
+                        to: super::Dest::To(StateKey::CharEnd)
+                    }
+                ]
+            }
+        );
+
+        states.insert(
+            StateKey::CharLiteral,
+            super::State {
+                parse: super::Parse::ByFunction(&|lexeme| {
+                    TokenType::CharLiteral(
+                        if lexeme == "''" { '\0' }
+                        else {
+                            let mut chars = lexeme.chars();
+                            let chr = chars.nth(1).unwrap();
+
+                            if chr == '\\' { char_to_escape_sequence(chars.next().unwrap()) }
+                            else { chr }
+                        }
+                    )
+                }),
+                transitions: vec![]
+            }
+        );
+
+        /* MINUS */
+
+        states.insert(
+            StateKey::Minus,
+            super::State {
+                parse: super::Parse::To(TokenType::Minus),
+                transitions: vec![
+                    super::Transition {
+                        match_by: super::Match::ByChar('>'), // Lexeme will be: ->
+                        to: super::Dest::To(StateKey::Other)
+                    }
+                ]
+            }
+        );
+
+        /* EQUALS */
+
+        states.insert(
+            StateKey::Equals,
+            super::State {
+                parse: super::Parse::To(TokenType::Equals),
+                transitions: vec![
+                    super::Transition {
+                        match_by: super::Match::ByChar('='), // Lexeme will be: ==
+                        to: super::Dest::To(StateKey::Other)
+                    }
+                ]
+            }
+        );
+
+
+        /* OTHER TOKENS */
+
+        states.insert(
+            StateKey::Other,
+            super::State {
+                parse: super::Parse::ByFunction(&|lexeme| {
+                    match lexeme {
+                        "->" => TokenType::Arrow,
+                        "==" => TokenType::DoubleEquals,
+
+                        "(" => TokenType::BracketOpen,
+                        ")" => TokenType::BracketClose,
+                        "[" => TokenType::BracketSquareOpen,
+                        "]" => TokenType::BracketSquareClose,
+                        ">" => TokenType::GreaterThan,
+                        "<" => TokenType::LessThan,
+                        "," => TokenType::Comma,
+                        "+" => TokenType::Plus,
+                        "/" => TokenType::Slash,
+                        "*" => TokenType::Star,
+                        "^" => TokenType::Caret,
+                        "!" => TokenType::ExclaimationMark,
+                        "~" => TokenType::Tilde,
+                        _ => panic!()
+                    }
+                }),
+                transitions: vec![]
+            }
+        );
+
+        let initial_state_key = StateKey::Initial;
+
+        let match_ignored = super::Match::ByChar(' ');
+
+        super::LexerSettings { states, initial_state_key, match_ignored }
     };
+}
 
-    match potential_tok {
-        Some(tok) => {
-            log::debug!("At {} - lexeme {:?} parsed to token: {:?}", pos, lexeme, tok);
-            Ok(LexToken(tok, lexeme, pos))
+fn match_digit(c: &char) -> bool { c.is_digit(10) }
+
+fn match_alphanumeric_or_underscore(c: &char) -> bool { c.is_ascii_alphanumeric() || *c == '_' }
+
+fn parse_number_literal(s: &str) -> TokenType { TokenType::NumberLiteral(s.parse().unwrap()) }
+
+fn char_to_escape_sequence(chr: char) -> char {
+    match chr {
+        'n' => '\n',
+        't' => '\t',
+        x => x
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::{ GenericToken, Failure };
+    use crate::stream::Stream;
+
+    // Define some helper methods to make tests easier to write. These methods on
+    // TokenStream will only exist in test builds of the program.
+    impl TokenStream<'_> {
+        fn assert_next(&mut self, expected_tok_type: TokenType) -> &mut Self {
+            if let Some(Ok(GenericToken { tok_type, .. })) = self.next() {
+                assert_eq!(tok_type, expected_tok_type);
+            }
+            else { panic!("Expected Ok(LexToken(..))"); }
+            self
         }
-        None => {
-            log::debug!("At {} - could not parse to token from lexeme: {:?}", pos, lexeme);
-            Err(match next_chr {
-                Some(chr) => {
-                    log::trace!("Failure to parse to token a result of unexpected character: {:?}", chr);
-                    LexFailure::UnexpectedChar(chr, lexeme, pos)
-                }
-                None => {
-                    log::trace!("Failure to parse to a token a result of reaching the stream end unexpectedly");
-                    LexFailure::UnexpectedEof(lexeme, pos)
-                }
-            })
+
+        fn assert_unexpected_char_next(&mut self, expected_chr: char) -> &mut Self {
+            if let Some(Err(Failure::UnexpectedChar(chr, ..))) = self.next() {
+                assert_eq!(chr, expected_chr);
+            }
+            else { panic!("Expected Err(LexFailure::UnexpectedChar(..))"); }
+            
+            self
         }
+
+        fn assert_unexpected_eof_next(&mut self) -> &mut Self {
+            if let Some(Err(Failure::UnexpectedEof(..))) = self.next() {}
+            else { panic!("Expected Err(LexFailure::UnexpectedEof(..))"); }
+    
+            self
+        }
+    
+        fn assert_end_of_stream(&mut self) {
+            assert_eq!(self.next(), None);
+        }
+    }
+
+    #[test]
+    fn test_ignored_characters() {
+        input(Stream::from_str("  5 6.2   "))
+        .assert_next(TokenType::NumberLiteral(5.0))
+        .assert_next(TokenType::NumberLiteral(6.2))
+        .assert_end_of_stream();
+    }
+
+    #[test]
+    fn test_number_literals() {
+        input(Stream::from_str("12.3 12."))
+        .assert_next(TokenType::NumberLiteral(12.3))
+        .assert_unexpected_eof_next();
+    }
+
+    #[test]
+    fn test_identifiers() {
+        input(Stream::from_str("someTHIng _with5and6   Type Nice1_"))
+        .assert_next(TokenType::Identifier("someTHIng".to_string()))
+        .assert_next(TokenType::Identifier("_with5and6".to_string()))
+        .assert_next(TokenType::TypeIdentifier("Type".to_string()))
+        .assert_next(TokenType::TypeIdentifier("Nice1_".to_string()));
+    }
+
+    #[test]
+    fn test_keywords() {
+        input(Stream::from_str("if else  while  true false"))
+        .assert_next(TokenType::IfKeyword)
+        .assert_next(TokenType::ElseKeyword)
+        .assert_next(TokenType::WhileKeyword)
+        .assert_next(TokenType::TrueKeyword)
+        .assert_next(TokenType::FalseKeyword);
+    }
+
+    #[test]
+    fn test_indentation() {
+        input(Stream::from_str("0\n\t1\n\t\t2\n0   \n\t\t\n\t"))
+        .assert_next(TokenType::NumberLiteral(0.0))
+        .assert_next(TokenType::Newline(1))
+        .assert_next(TokenType::NumberLiteral(1.0))
+        .assert_next(TokenType::Newline(2))
+        .assert_next(TokenType::NumberLiteral(2.0))
+        .assert_next(TokenType::Newline(0))
+        .assert_next(TokenType::NumberLiteral(0.0))
+
+        .assert_next(TokenType::Newline(1))
+        .assert_end_of_stream();
+    }
+
+    #[test]
+    fn test_string_literals() {
+        input(Stream::from_str("\"\" \"hello\\tworld\" \"世界\" \"\\n\\t\\\"\\\\\" \"not terminated..."))
+        .assert_next(TokenType::StringLiteral("".to_string()))
+        .assert_next(TokenType::StringLiteral("hello\tworld".to_string()))
+        .assert_next(TokenType::StringLiteral("世界".to_string()))
+        .assert_next(TokenType::StringLiteral("\n\t\"\\".to_string()))
+        .assert_unexpected_eof_next();
+    }
+
+    #[test]
+    fn test_char_literals() {
+        input(Stream::from_str("'' 'a' 'わ' '\\'' '\\n'"))
+        .assert_next(TokenType::CharLiteral('\0'))
+        .assert_next(TokenType::CharLiteral('a'))
+        .assert_next(TokenType::CharLiteral('わ'))
+        .assert_next(TokenType::CharLiteral('\''))
+        .assert_next(TokenType::CharLiteral('\n'));
+    }
+
+    #[test]
+    fn test_minus_and_arrow() {
+        input(Stream::from_str("- ->"))
+        .assert_next(TokenType::Minus)
+        .assert_next(TokenType::Arrow);
+    }
+
+    #[test]
+    fn test_equals_and_double_equals() {
+        input(Stream::from_str("= =="))
+        .assert_next(TokenType::Equals)
+        .assert_next(TokenType::DoubleEquals);
+    }
+
+    #[test]
+    fn test_other_tokens() {
+        input(Stream::from_str("() [] > < , + / * ^ ! ~"))
+        .assert_next(TokenType::BracketOpen).assert_next(TokenType::BracketClose)
+        .assert_next(TokenType::BracketSquareOpen).assert_next(TokenType::BracketSquareClose)
+        .assert_next(TokenType::GreaterThan)
+        .assert_next(TokenType::LessThan)
+        .assert_next(TokenType::Comma)
+        .assert_next(TokenType::Plus)
+        .assert_next(TokenType::Slash)
+        .assert_next(TokenType::Star)
+        .assert_next(TokenType::Caret)
+        .assert_next(TokenType::ExclaimationMark)
+        .assert_next(TokenType::Tilde);
+    }
+    
+    #[test]
+    fn test_lexing_errors() {
+        input(Stream::from_str("10.a 10."))
+        .assert_unexpected_char_next('a')
+        .assert_next(TokenType::Identifier("a".to_string()))
+        .assert_unexpected_eof_next();
     }
 }

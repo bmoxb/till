@@ -11,15 +11,13 @@ fn main() {
     #[cfg(debug_assertions)]
     pretty_env_logger::init_timed();
 
-    let lxr = lexing::new_till_lexer();
-
     match env::args().nth(1) {
-        Some(path) => execute_by_file(Path::new(&path), &lxr),
-        None => execute_by_repl(&lxr)
+        Some(path) => execute_by_file(Path::new(&path)),
+        None => execute_by_repl()
     }
 }
 
-fn execute_by_file(relative_path: &Path, lxr: &lexing::TillLexer) {
+fn execute_by_file(relative_path: &Path) {
     log::info!("Executing TILL file...");
 
     let path = match relative_path.canonicalize() {
@@ -31,7 +29,7 @@ fn execute_by_file(relative_path: &Path, lxr: &lexing::TillLexer) {
         Ok(file) => {
             log::info!("Successfully opened file: {}", path.display());
 
-            execute(stream::Stream::from_file(file), &lxr);
+            execute(stream::Stream::from_file(file));
         }
         Err(e) => {
             match e.kind() {
@@ -46,7 +44,7 @@ fn execute_by_file(relative_path: &Path, lxr: &lexing::TillLexer) {
     }
 }
 
-fn execute_by_repl(lxr: &lexing::TillLexer) {
+fn execute_by_repl() {
     log::info!("Beginning REPL...");
 
     println!("Tiny Interpreted Lightweight Language (TILL) {}", VERSION);
@@ -69,14 +67,14 @@ fn execute_by_repl(lxr: &lexing::TillLexer) {
             }
         }
 
-        execute(stream::Stream::from_str(&input), lxr);
+        execute(stream::Stream::from_str(&input));
     }
 }
 
-fn execute(strm: stream::Stream, lxr: &lexing::TillLexer) {
+fn execute(strm: stream::Stream) {
     log::info!("Lexing...");
     
-    let tokens_iter = lxr.input(strm).filter_map(|value| {
+    let tokens_iter = lexing::lexer::input(strm).filter_map(|value| {
         match value {
             Ok(lex_tok) => Some(lex_tok),
             Err(e) => {
