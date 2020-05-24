@@ -20,7 +20,7 @@ pub struct Lexeme {
 
 impl fmt::Display for Lexeme {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?} at {:?}", self.text, self.pos)
+        write!(f, "{:?} at {}", self.text, self.pos)
     }
 }
 
@@ -96,7 +96,10 @@ where StateKey: Eq + Copy + Hash + fmt::Debug, TokenType: Clone + fmt::Debug {
                 unexpected_char, self.settings.get_state(current_key)
             ))
         }
-        else { None } // Nothing added to lexeme - assume stream had already reached end.
+        else {
+            log::debug!("Already reached end of stream!");
+            None
+        }
     }
 }
 
@@ -104,6 +107,7 @@ where StateKey: Eq + Copy + Hash + fmt::Debug, TokenType: Clone + fmt::Debug {
 /// input character. Will return `Some` holding the next state key should an
 /// appropriate transition be found (whether to the current state or elsewhere).
 /// `None` is returned when no appropriate transitions could be found.
+// TODO: Make method of `Dest` or `Transition`?
 fn attempt_state_transition<StateKey>(current_key: StateKey, transitions : &Vec<Transition<StateKey>>, chr: char) -> Option<StateKey>
 where StateKey: Copy + fmt::Debug {
     for transition in transitions {
@@ -124,6 +128,7 @@ where StateKey: Copy + fmt::Debug {
     None // No appropriate transition found (to self or otherwise) so return nothing.
 }
 
+// TODO: Make method of `Parse`?
 fn attempt_parse_lexeme_to_token<TokenType, StateKey>(lexeme: Lexeme, next_chr: Option<char>, final_state: &State<TokenType, StateKey>) -> Result<GenericToken<TokenType>, Failure>
 where TokenType: fmt::Debug + Clone {
     match final_state.parse.lexeme_string_to_token_type::<StateKey>(&lexeme.text) {
