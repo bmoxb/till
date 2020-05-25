@@ -9,7 +9,7 @@ pub struct Position {
 }
 
 impl Position {
-    fn new() -> Position {
+    pub fn new() -> Position {
         Position { position: 0, line_number: 1, line_position: 0 }
     }
 }

@@ -6,16 +6,16 @@ use std::{ fmt, hash::Hash, collections::HashMap };
 /// Represents a token holding a token type and a lexeme.
 #[derive(Debug, PartialEq)]
 pub struct GenericToken<TokenType> {
-    tok_type: TokenType,
-    lexeme: Lexeme
+    pub tok_type: TokenType,
+    pub lexeme: Lexeme
 }
 
 /// Holds the raw lexeme string, as well as the position in the input stream the
 /// lexeme is from.
 #[derive(Debug, PartialEq)]
 pub struct Lexeme {
-    text: String,
-    pos: stream::Position
+    pub text: String,
+    pub pos: stream::Position
 }
 
 impl fmt::Display for Lexeme {

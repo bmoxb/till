@@ -82,9 +82,7 @@ fn execute(strm: stream::Stream) {
                 None
             }
         }
-    }).collect::<Vec<lexing::lexer::Token>>();
-
-    log::debug!("Tokens:\n{:#?}", tokens);
+    });
 
     log::info!("Parsing...");
 
