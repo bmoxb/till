@@ -63,6 +63,6 @@ mod tests {
 
         assert!(lxr.match_token_types(&[lexer::TokenType::Identifier("".to_string())]));
         assert_eq!(lxr.match_token_types(&[lexer::TokenType::Minus, lexer::TokenType::NumberLiteral(0.0)]), false);
-        assert!(lxr.match_token_types(&[lexer::TokenType::Minus, lexer::TokenType::StringLiteral("wow\n".to_string())]));
+        assert!(lxr.match_token_types(&[lexer::TokenType::Minus, lexer::TokenType::StringLiteral("".to_string())]));
     }
 }
