@@ -10,9 +10,9 @@
 
 <if> ::= "if" <expr> <block> ("else" <block>)?
 
-<function> ::= "(" (<arg> ("," <arg>)*)? ")" ("->" <type>)? <block>
+<function> ::= identifier "(" (<param> ("," <param>)*)? ")" ("->" <type>)? <block>
 
-<arg> ::= <type> identifier
+<param> ::= <type> identifier
 
 <type> ::= typeidentifier | "[" <type> "]"
 
