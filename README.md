@@ -8,7 +8,7 @@
   * [x] Define all states and transitions required for interpreting TILL
   * [x] Return line and character position alongside token and lexeme
 * [ ] Parser
-  * [ ] Create an unambigious grammar
+  * [x] Create an unambigious grammar
   * [ ] Implement the recursive-descent parser
 * [ ] Checker
   * [ ] Ensure functions and variables referenced are defined and within scope

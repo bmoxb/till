@@ -6,14 +6,17 @@
 
 (* Statements *)
 
-<stmt> ::= "if" <expr> <block> ("else" <block>)? (* if statement (optional else clause *)
-         | "(" (<arg> ("," <arg>)*)? ")" ("->" <type>)? <block> (* define function *)
-         | <type> <assignment> ("," <assignment>)* (* declare new bindings *)
+<stmt> ::= <if> | <function> | <declaration> | <assignment>
+
+<if> ::= "if" <expr> <block> ("else" <block>)?
+
+<function> ::= "(" (<arg> ("," <arg>)*)? ")" ("->" <type>)? <block>
 
 <arg> ::= <type> identifier
 
-<type> ::= typeidentifier |
-           "[" <type> "]" (* array type *)
+<type> ::= typeidentifier | "[" <type> "]"
+
+<declaration> ::= <type> identifier ("=" <expr>)?
 
 <assignment> ::= identifier "=" <expr>
 
@@ -27,8 +30,7 @@
 
 <multiplication> ::= <unary> (("*"|"/") <unary>)*
 
-<unary> ::= ("!"|"~") <unary>
-          | <primary>
+<unary> ::= ("!"|"~") <unary> | <primary>
 
 <primary> ::= number | string | character | "true" | "false"
             | "[" (<expr> ("," <expr>)*)? "]"
