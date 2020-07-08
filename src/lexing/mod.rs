@@ -138,7 +138,7 @@ where TokenType: fmt::Debug + Clone {
             Ok(GenericToken { tok_type, lexeme })
         }
         None => {
-            log::debug!("Ccould not parse to token from lexeme {}",  lexeme);
+            log::debug!("Ccould not parse to token from lexeme: {}",  lexeme);
             Err(match next_chr {
                 Some(chr) => {
                     log::trace!("Failure to parse to token a result of unexpected character: {:?}", chr);
