@@ -1,5 +1,6 @@
 pub mod parser;
 
+#[derive(Debug, PartialEq)]
 pub enum Statement {
     If {
         condition: Expression,
@@ -9,7 +10,7 @@ pub enum Statement {
 
     FunctionDefinition {
         identifier: String,
-        parameters: Vec<Parameter>,
+        parameters: Vec<(Type, String)>,
         return_type: Option<Type>,
         body: Vec<Statement>
     },
@@ -26,13 +27,23 @@ pub enum Statement {
     }
 }
 
-pub struct Parameter (String, Type);
-
+#[derive(Debug, PartialEq)]
 pub enum Type {
     Identifier(String),
     Array(Box<Type>)
 }
 
+#[derive(Debug, PartialEq)]
 pub enum Expression {
-    // ...
+    Equal(Box<Expression>, Box<Expression>),
+    //NotEqual(Box<Expression>, Box<Expression>),
+    GreaterThan(Box<Expression>, Box<Expression>),
+    LessThan(Box<Expression>, Box<Expression>),
+    Add(Box<Expression>, Box<Expression>),
+    Subtract(Box<Expression>, Box<Expression>),
+    Multiply(Box<Expression>, Box<Expression>),
+    Divide(Box<Expression>, Box<Expression>),
+
+    BooleanNot(Box<Expression>),
+    UnaryMinus(Box<Expression>),
 }
