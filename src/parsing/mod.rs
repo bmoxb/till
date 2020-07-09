@@ -1,5 +1,7 @@
 pub mod parser;
 
+use crate::lexing::lexer;
+
 #[derive(Debug, PartialEq)]
 pub enum Statement {
     If {
@@ -46,4 +48,9 @@ pub enum Expression {
 
     BooleanNot(Box<Expression>),
     UnaryMinus(Box<Expression>),
+
+    NumberLiteral(lexer::Token),
+    StringLiteral(lexer::Token),
+    BooleanLiteral(lexer::Token),
+    Variable(lexer::Token)
 }
