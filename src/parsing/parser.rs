@@ -186,14 +186,25 @@ mod tests {
     }
 
     #[test]
+    #[allow(illegal_floating_point_literal_pattern)]
     fn test_simple_primary_expressions() {
         let tokens = lexer::input(Stream::from_str("10.5 \"string\" my_identifier true")).map(Result::unwrap);
         let mut prsr = super::input(tokens);
 
-        assert_expr_type!(prsr.primary_expr(), parsing::Expression::NumberLiteral(_));
+        assert_expr_type!(prsr.primary_expr(),
+            parsing::Expression::NumberLiteral(lexer::Token {
+                tok_type: lexer::TokenType::NumberLiteral(10.5),
+                lexeme: _
+            })
+        );
         assert_expr_type!(prsr.expression(), parsing::Expression::StringLiteral(_));
         assert_expr_type!(prsr.primary_expr(), parsing::Expression::Variable(_));
-        assert_expr_type!(prsr.expression(), parsing::Expression::BooleanLiteral(_));
+        assert_expr_type!(prsr.expression(),
+            parsing::Expression::BooleanLiteral(lexer::Token {
+                tok_type: lexer::TokenType::TrueKeyword,
+                lexeme: _
+            })
+        );
     }
 
     #[test]
