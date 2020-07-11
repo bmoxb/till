@@ -66,6 +66,10 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
         unimplemented!() // TODO!
     }
 
+    /// In order to facilitate proper operator prescendence, the grammar for
+    /// expressions has a lot of very similar patterns (see 'expr', 'comparison',
+    /// 'multiplcation', etc. in grammar file). This method is present to reduce
+    /// the amount of repeated code required.
     fn left_right_expr(&mut self, sub_expr_func: fn(&mut Self) -> Result<super::Expression, Failure>,
     seperators: &[(lexer::TokenType, fn(Box<super::Expression>, Box<super::Expression>) -> super::Expression)])
     -> Result<super::Expression, Failure> {
@@ -185,11 +189,15 @@ mod tests {
         };
     }
 
+    fn quick_parse(inp: &str) -> super::StatementStream<impl Iterator<Item=lexer::Token>> {
+        let tokens = lexer::input(Stream::from_str(inp)).map(Result::unwrap);
+        super::input(tokens)
+    }
+
     #[test]
     #[allow(illegal_floating_point_literal_pattern)]
     fn test_simple_primary_expressions() {
-        let tokens = lexer::input(Stream::from_str("10.5 \"string\" my_identifier true")).map(Result::unwrap);
-        let mut prsr = super::input(tokens);
+        let mut prsr = quick_parse("10.5 \"string\" my_identifier true");
 
         assert_expr_type!(prsr.primary_expr(),
             parsing::Expression::NumberLiteral(lexer::Token {
@@ -209,9 +217,16 @@ mod tests {
 
     #[test]
     fn test_equivalence_expression() {
-        let tokens = lexer::input(Stream::from_str("10 == 2")).map(Result::unwrap);
-        let mut prsr = super::input(tokens);
+        let mut prsr = quick_parse("10 == 2");
         
         assert_expr_type!(prsr.expression(), parsing::Expression::Equal(_, _));
+    }
+
+    #[test]
+    fn test_expression_prescendece() {
+        assert_expr_type!(quick_parse("10 + 2 * 5").expression(), parsing::Expression::Add(_, _));
+        assert_expr_type!(quick_parse("2 * 5 + 10").expression(), parsing::Expression::Add(_, _));
+        assert_expr_type!(quick_parse("10 > 2 / 5").expression(), parsing::Expression::GreaterThan(_, _));
+        assert_expr_type!(quick_parse("true == 10 > 2 / 5").expression(), parsing::Expression::Equal(_, _));
     }
 }
