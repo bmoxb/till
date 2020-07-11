@@ -70,15 +70,14 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     seperators: &[(lexer::TokenType, fn(Box<super::Expression>, Box<super::Expression>) -> super::Expression)])
     -> Result<super::Expression, Failure> {
         let mut expr = sub_expr_func(self);
-
+        
         for (seperating_tok_type, make_expr_func) in seperators {
-            if let Some(coming_tok) = self.tokens.peek() {
-                if coming_tok.tok_type == *seperating_tok_type {
+            if let Some(tok) = self.tokens.peek() {
+                if tok.tok_type == *seperating_tok_type {
                     self.tokens.next();
                     expr = Ok(make_expr_func(Box::new(expr?), Box::new(sub_expr_func(self)?)));
                 }
             }
-            else { break }
         }
 
         expr
@@ -138,7 +137,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
                     self.tokens.next();
                     Ok(super::Expression::BooleanNot(Box::new(self.expression()?)))
                 }
-                _ => self.expression()
+                _ => self.primary_expr()
             }
         }
         else { Err(Failure::UnexpectedStreamEnd("unary expression")) }
@@ -181,7 +180,7 @@ mod tests {
         ($x:expr, $y:pat) => {
             match Result::unwrap($x) {
                 $y => {}
-                _ => panic!()
+                _ => panic!("Expression is not of correct type: {:?}", $x)
             }
         };
     }
@@ -192,11 +191,16 @@ mod tests {
         let mut prsr = super::input(tokens);
 
         assert_expr_type!(prsr.primary_expr(), parsing::Expression::NumberLiteral(_));
-        assert_expr_type!(prsr.primary_expr(), parsing::Expression::StringLiteral(_));
+        assert_expr_type!(prsr.expression(), parsing::Expression::StringLiteral(_));
         assert_expr_type!(prsr.primary_expr(), parsing::Expression::Variable(_));
-        assert_expr_type!(prsr.primary_expr(), parsing::Expression::BooleanLiteral(_));
+        assert_expr_type!(prsr.expression(), parsing::Expression::BooleanLiteral(_));
     }
 
     #[test]
-    fn test_expression_enclosed_in_brackets() {}
+    fn test_equivalence_expression() {
+        let tokens = lexer::input(Stream::from_str("10 == 2")).map(Result::unwrap);
+        let mut prsr = super::input(tokens);
+        
+        assert_expr_type!(prsr.expression(), parsing::Expression::Equal(_, _));
+    }
 }
