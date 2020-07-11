@@ -86,7 +86,17 @@ fn execute(strm: stream::Stream) {
 
     log::info!("Parsing...");
 
-    let syntax_tree = parsing::parser::input(tokens);
+    let syntax_tree = parsing::parser::input(tokens).filter_map(|value| {
+        match value {
+            Ok(stmt) => Some(stmt),
+            Err(e) => {
+                println!("SYNTAX ERROR: {}", e);
+                None
+            }
+        }
+    });
+    
+    syntax_tree.last(); // TODO: temporary!
 
 /*
     log::info!("Type checking... TODO!");

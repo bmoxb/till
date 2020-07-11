@@ -19,7 +19,7 @@ pub enum Failure {
 impl fmt::Display for Failure {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Failure::UnexpectedToken(tok, expected) => write!(f, "Expected {} yet encountered token {:?}", expected, tok),
+            Failure::UnexpectedToken(tok, expected) => write!(f, "Expected {} yet encountered unexpected token with lexeme {}", expected, tok.lexeme), // TODO: Proper token fmt::Display
             Failure::UnexpectedStreamEnd(expected) => write!(f, "Encountered the end of the token stream yet expected {}", expected)
         }
     }
