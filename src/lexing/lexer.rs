@@ -1,7 +1,28 @@
 use crate::stream;
-use std::collections::HashMap;
+use std::{ fmt, collections::HashMap };
 
 pub type Token = super::GenericToken<TokenType>;
+
+impl fmt::Display for Token {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let name = match self.tok_type {
+            TokenType::Newline(x) if x > 0 => "indentation level",
+            TokenType::Newline(0) => "newline",
+            TokenType::Identifier(_) => "identifier",
+            TokenType::TypeIdentifier(_) => "type identifier",
+            TokenType::NumberLiteral(_) |
+            TokenType::StringLiteral(_) |
+            TokenType::CharLiteral(_) => "literal",
+            TokenType::IfKeyword |
+            TokenType::ElseKeyword |
+            TokenType::TrueKeyword |
+            TokenType::FalseKeyword => "keyword",
+            _ => "token"
+        };
+
+        write!(f, "{} {}", name, self.lexeme)
+    }
+}
 
 pub type TokenStream<'a> = super::GenericTokenStream<'a, TokenType, StateKey>;
 
