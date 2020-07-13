@@ -1,6 +1,6 @@
 (* Groupings *)
 
-<chunk> ::= (<stmt> newlines)*
+<chunk> ::= (<stmt> newlines)+
 
 <block> ::= newlines indentincr <chunk> indentdecr
 
