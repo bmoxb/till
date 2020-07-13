@@ -6,15 +6,15 @@ use crate::lexing::lexer;
 pub enum Statement {
     If {
         condition: Expression,
-        if_block: Vec<Statement>,
-        else_block: Option<Vec<Statement>>
+        if_block: Block,
+        else_block: Option<Block>
     },
 
     FunctionDefinition {
         identifier: String,
         parameters: Vec<(Type, String)>,
         return_type: Option<Type>,
-        body: Vec<Statement>
+        body: Block
     },
 
     VariableDeclaration {
@@ -25,9 +25,12 @@ pub enum Statement {
 
     VariableAssignment {
         identifier: String,
-        value: Expression
+        assign_to: Expression
     }
 }
+
+#[derive(Debug, PartialEq)]
+pub struct Block (Vec<Statement>);
 
 #[derive(Debug, PartialEq)]
 pub enum Type {

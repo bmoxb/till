@@ -96,7 +96,7 @@ fn execute(strm: stream::Stream) {
         }
     });
     
-    syntax_tree.last(); // TODO: temporary!
+    println!("{:#?}", syntax_tree.collect::<Vec<parsing::Statement>>());
 
 /*
     log::info!("Type checking... TODO!");
