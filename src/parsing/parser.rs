@@ -40,7 +40,18 @@ impl<T: Iterator<Item=lexer::Token>> Iterator for StatementStream<T> {
         log::info!("-- Next Parsing --");
 
         if self.tokens.peek().is_some() { // Not at stream end?
-            Some(self.statement(0, "top-level statement"))
+            let stmt = self.statement(0, "top-level statement");
+
+            // Newline tokens are optional at the top-level but are consumed if
+            // present:
+            if let Some(coming_tok) = self.tokens.peek() {
+                match coming_tok.tok_type {
+                    lexer::TokenType::Newline(_) => { self.tokens.next(); }
+                    _ => {}
+                }
+            }
+
+            Some(stmt)
         }
         else { None }
     }
