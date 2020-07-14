@@ -39,19 +39,19 @@ impl<T: Iterator<Item=lexer::Token>> Iterator for StatementStream<T> {
     fn next(&mut self) -> Option<Self::Item> {
         log::info!("-- Next Parsing --");
 
-        if self.at_token_stream_end() { None }
-        else {
+        if self.more_tokens_in_stream() {
             let stmt = self.statement(0, "top-level statement");
 
             let _ = self.consume_token_if_type(&lexer::TokenType::Newline(0), "top-level statement");
 
             Some(stmt)
         }
+        else { None }
     }
 }
 
 impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
-    fn at_token_stream_end(&mut self) -> bool {
+    fn more_tokens_in_stream(&mut self) -> bool {
         self.tokens.peek().is_some()
     }
 
@@ -164,11 +164,15 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     }
 
     /// <function> ::= identifier "(" (<param> ("," <param>)*)? ")" ("->" <type>)? <block>
-    fn define_function_stmt(&mut self, identifier: String) -> Result<super::Statement, Failure> { unimplemented!() }
+    fn define_function_stmt(&mut self, identifier: String) -> Result<super::Statement, Failure> {
+        unimplemented!() // TODO
+    }
 
 
     /// <declaration> ::= <type> identifier ("=" <expr>)?
-    fn variable_declaration_stmt(&mut self) -> Result<super::Statement, Failure> { unimplemented!() }
+    fn variable_declaration_stmt(&mut self) -> Result<super::Statement, Failure> {
+        unimplemented!() // TODO
+    }
 
     /// <assignment> ::= identifier "=" <expr>
     /// 
