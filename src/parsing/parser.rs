@@ -110,9 +110,9 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
         else { Ok(None) }
     }
 
-    /// <stmt> ::= <if> | <function> | <declaration> | <assignment>
-    ///
     /// Parse a TILL statement.
+    ///
+    /// `<stmt> ::= <if> | <function> | <declaration> | <assignment>`
     fn statement(&mut self, current_indent: usize, stmt_type_name: &'static str) -> Result<super::Statement, Failure> {
         log::debug!("Parsing statement...");
 
@@ -143,7 +143,9 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
         }
     }
 
-    /// <if> ::= "if" <expr> <block> ("else" <block>)?
+    /// Parse an if statement that may optionally include an else clause.
+    ///
+    /// `<if> ::= "if" <expr> <block> ("else" <block>)?`
     fn if_stmt(&mut self, current_indent: usize) -> Result<super::Statement, Failure> {
         // Consume the if keyword token:
         self.consume_token_of_expected_type(&lexer::TokenType::IfKeyword, "if keyword")?;
@@ -163,21 +165,28 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
         })
     }
 
-    /// <function> ::= identifier "(" (<param> ("," <param>)*)? ")" ("->" <type>)? <block>
+    /// Parse a function definition statement. The function name identifier is
+    /// assumed to have already have been consumed.
+    ///
+    /// `<function> ::= identifier "(" (<param> ("," <param>)*)? ")" ("->" <type>)? <block>`
     fn define_function_stmt(&mut self, identifier: String) -> Result<super::Statement, Failure> {
         unimplemented!() // TODO
     }
 
 
-    /// <declaration> ::= <type> identifier ("=" <expr>)?
+    /// Parse a variable declaration statement that may optionally include an
+    /// initial assignment value for that variable.
+    ///
+    /// `<declaration> ::= <type> identifier ("=" <expr>)?`
     fn variable_declaration_stmt(&mut self) -> Result<super::Statement, Failure> {
         unimplemented!() // TODO
     }
 
-    /// <assignment> ::= identifier "=" <expr>
-    /// 
-    /// Identifier token is already assumed to have been consumed and the
-    /// identifier string from said token passed to this method.
+    /// Parse a variable assignment statement. The identifier token is already
+    /// assumed to have been consumed and the identifier string from said token
+    /// passed to this method.
+    ///
+    /// `<assignment> ::= identifier "=" <expr>`
     fn assignment_stmt(&mut self, identifier: String) -> Result<super::Statement, Failure> {
         self.consume_token_of_expected_type(&lexer::TokenType::Equals, "equals = after identifier to indicate assignment")?;
 
@@ -187,10 +196,11 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
         })
     }
 
-    /// <block> ::= newlines indentincr <chunk> indentdecr
+    /// Parse a block (a collection of one or more sequential statements that
+    /// start at an identation level one higher than the previous indentation
+    /// level).
     ///
-    /// Parse a collection of one or more statements that start at a new level
-    /// of indentation.
+    /// `<block> ::= newlines indentincr <chunk> indentdecr`
     fn block(&mut self, indent_before_block: usize) -> Result<super::Block, Failure> {
         let block_indent = indent_before_block + 1;
         
@@ -201,7 +211,10 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
         Ok(super::Block(stmts))
     }
 
-    /// <chunk> ::= (<stmt> newlines)*
+    /// Parse a chunk (a collection of one or more sequential statements at a
+    /// given indentation level).
+    ///
+    /// `<chunk> ::= (<stmt> newlines)*`
     fn block_stmts(&mut self, block_indent: usize) -> Result<Vec<super::Statement>, Failure> {
         let mut stmts = Vec::new();
 
@@ -245,15 +258,19 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
         expr
     }
 
-    /// <expr> ::= <comparison> (("!="|"==") <comparison>)*
+    /// Parse a TILL expression.
+    ///
+    /// `<expr> ::= <comparison> (("!="|"==") <comparison>)*`
     fn expression(&mut self) -> Result<super::Expression, Failure> {
+        log::trace!("Parsing expression...");
+
         self.left_right_expr(
             Self::comparison_expr,
             &[(lexer::TokenType::DoubleEquals, |l, r| super::Expression::Equal(l, r))]
         )
     }
 
-    /// <comparison> ::= <addition> (("<"|">") <addition>)*
+    /// `<comparison> ::= <addition> (("<"|">") <addition>)*`
     fn comparison_expr(&mut self) -> Result<super::Expression, Failure> {
         self.left_right_expr(
             Self::addition_expr,
@@ -266,7 +283,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
         )
     }
 
-    /// <addition> ::= <multiplication> (("+"|"-") <multiplication>)*
+    /// `<addition> ::= <multiplication> (("+"|"-") <multiplication>)*`
     fn addition_expr(&mut self) -> Result<super::Expression, Failure> {
         self.left_right_expr(
             Self::multiplication_expr,
@@ -279,7 +296,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
         )
     }
 
-    /// <multiplication> ::= <unary> (("*"|"/") <unary>)*
+    /// `<multiplication> ::= <unary> (("*"|"/") <unary>)*`
     fn multiplication_expr(&mut self) -> Result<super::Expression, Failure> {
         self.left_right_expr(
             Self::unary_expr,
@@ -292,7 +309,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
         )
     }
 
-    /// <unary> ::= ("!"|"~") <unary> | <primary>
+    /// `<unary> ::= ("!"|"~") <unary> | <primary>`
     fn unary_expr(&mut self) -> Result<super::Expression, Failure> {
         if self.consume_token_if_type(&lexer::TokenType::Tilde, "unary expression")?.is_some() {
             Ok(super::Expression::UnaryMinus(Box::new(self.expression()?)))
@@ -303,14 +320,22 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
         else { self.primary_expr() }
     }
 
+    /// Parse a primary expression (a literal, expression enclosed in brackets,
+    /// or variable identifier).
+    ///
+    /// ```
     /// <primary> ::= number | string | character | "true" | "false"
     ///             | "[" (<expr> ("," <expr>)*)? "]"
     ///             | "(" <expr> ")"
     ///             | identifier
+    /// ```
     fn primary_expr(&mut self) -> Result<super::Expression, Failure> {
         let tok = self.consume_token("primary expression")?;
+
         log::trace!("Primary expression token: {}", tok);
+
         match tok.tok_type {
+            // Handle expression enclosed in brackets:
             lexer::TokenType::BracketOpen => {
                 let expr = self.expression()?;
                 self.consume_token_of_expected_type(&lexer::TokenType::BracketClose, "closing bracket ) token")?;
