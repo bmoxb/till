@@ -169,7 +169,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     /// assumed to have already have been consumed.
     ///
     /// `<function> ::= identifier "(" (<param> ("," <param>)*)? ")" ("->" <type>)? <block>`
-    fn define_function_stmt(&mut self, identifier: String) -> Result<super::Statement, Failure> {
+    fn define_function_stmt(&mut self, _identifier: String) -> Result<super::Statement, Failure> {
         unimplemented!() // TODO
     }
 
@@ -362,7 +362,7 @@ mod tests {
     use crate::lexing::lexer;
     use crate::stream::Stream;
 
-    macro_rules! assert_expr_type {
+    macro_rules! assert_pattern {
         ($x:expr, $y:pat) => {
             match Result::unwrap($x) {
                 $y => {}
@@ -377,19 +377,60 @@ mod tests {
     }
 
     #[test]
+    fn test_assignment_statements() {
+        assert_pattern!(
+            quick_parse("a = 10 + 5").next().unwrap(),
+            parsing::Statement::VariableAssignment {
+                identifier: _,
+                assign_to: parsing::Expression::Add(_, _)
+            }
+        );
+    }
+
+    #[test]
+    fn test_if_statements() {
+        let mut prsr = quick_parse("\
+            if true\n\t\
+                a = 5\n\
+            if 10 == 2 + 5\n\t\
+                x = \"this\"\n\
+            else\n\t\
+                x = \"that\"\n\
+        ");
+
+        assert_pattern!(
+            prsr.if_stmt(0),
+            parsing::Statement::If {
+                condition: parsing::Expression::BooleanLiteral(_),
+                if_block: parsing::Block(_),
+                else_block: None
+            }
+        );
+
+        assert_pattern!(
+            prsr.next().unwrap(),
+            parsing::Statement::If {
+                condition: parsing::Expression::Equal(_, _),
+                if_block: parsing::Block(_),
+                else_block: Some(parsing::Block(_))
+            }
+        );
+    }
+
+    #[test]
     #[allow(illegal_floating_point_literal_pattern)]
     fn test_simple_primary_expressions() {
         let mut prsr = quick_parse("10.5 \"string\" my_identifier true");
 
-        assert_expr_type!(prsr.primary_expr(),
+        assert_pattern!(prsr.primary_expr(),
             parsing::Expression::NumberLiteral(lexer::Token {
                 tok_type: lexer::TokenType::NumberLiteral(10.5),
                 lexeme: _
             })
         );
-        assert_expr_type!(prsr.expression(), parsing::Expression::StringLiteral(_));
-        assert_expr_type!(prsr.primary_expr(), parsing::Expression::Variable(_));
-        assert_expr_type!(prsr.expression(),
+        assert_pattern!(prsr.expression(), parsing::Expression::StringLiteral(_));
+        assert_pattern!(prsr.primary_expr(), parsing::Expression::Variable(_));
+        assert_pattern!(prsr.expression(),
             parsing::Expression::BooleanLiteral(lexer::Token {
                 tok_type: lexer::TokenType::TrueKeyword,
                 lexeme: _
@@ -398,17 +439,20 @@ mod tests {
     }
 
     #[test]
-    fn test_equivalence_expression() {
-        let mut prsr = quick_parse("10 == 2");
-        
-        assert_expr_type!(prsr.expression(), parsing::Expression::Equal(_, _));
+    fn test_unary_expressions() {
+        let mut prsr = quick_parse("10 ~10 !true");
+
+        assert_pattern!(prsr.unary_expr(), parsing::Expression::NumberLiteral(_));
+        assert_pattern!(prsr.expression(), parsing::Expression::UnaryMinus(_));
+        assert_pattern!(prsr.unary_expr(), parsing::Expression::BooleanNot(_));
     }
 
     #[test]
     fn test_expression_prescendece() {
-        assert_expr_type!(quick_parse("10 + 2 * 5").expression(), parsing::Expression::Add(_, _));
-        assert_expr_type!(quick_parse("2 * 5 + 10").expression(), parsing::Expression::Add(_, _));
-        assert_expr_type!(quick_parse("10 > 2 / 5").expression(), parsing::Expression::GreaterThan(_, _));
-        assert_expr_type!(quick_parse("true == 10 > 2 / 5").expression(), parsing::Expression::Equal(_, _));
+        assert_pattern!(quick_parse("10 + 2 * 5").expression(), parsing::Expression::Add(_, _));
+        assert_pattern!(quick_parse("2 * 5 + 10").expression(), parsing::Expression::Add(_, _));
+        assert_pattern!(quick_parse("(10 + 2) * 5").expression(), parsing::Expression::Multiply(_, _));
+        assert_pattern!(quick_parse("10 > 2 / 5").expression(), parsing::Expression::GreaterThan(_, _));
+        assert_pattern!(quick_parse("true == 10 > 2 / 5").expression(), parsing::Expression::Equal(_, _));
     }
 }
