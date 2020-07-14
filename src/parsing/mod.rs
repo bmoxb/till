@@ -12,7 +12,7 @@ pub enum Statement {
 
     FunctionDefinition {
         identifier: String,
-        parameters: Vec<(Type, String)>,
+        parameters: Vec<Parameter>,
         return_type: Option<Type>,
         body: Block
     },
@@ -30,7 +30,10 @@ pub enum Statement {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct Block(Vec<Statement>);
+pub struct Block ( Vec<Statement> );
+
+#[derive(Debug, PartialEq)]
+pub struct Parameter ( Type, String, stream::Position );
 
 #[derive(Debug, PartialEq)]
 pub enum Type {

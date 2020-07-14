@@ -125,7 +125,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
                 self.consume_token("statement")?;
 
                 if self.check_type_of_peeked_token(&lexer::TokenType::BracketOpen, "statement")? {
-                    self.define_function_stmt(identifier)
+                    self.define_function_stmt(current_indent, identifier)
                 }
                 else if self.check_type_of_peeked_token(&lexer::TokenType::Equals, "statement")? {
                     self.assignment_stmt(identifier)
@@ -134,8 +134,8 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
             }
 
             // Variable declaration:
-            /*lexer::TokenType::BracketSquareClose |
-            lexer::TokenType::TypeIdentifier(_) => self.variable_declaration_stmt(),*/
+            lexer::TokenType::BracketSquareOpen |
+            lexer::TokenType::TypeIdentifier(_) => self.variable_declaration_stmt(),
 
             _ => Err(Failure::UnexpectedToken(self.consume_token("statement")?, stmt_type_name))
         }
@@ -167,8 +167,34 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     /// assumed to have already have been consumed.
     ///
     /// `<function> ::= identifier "(" (<param> ("," <param>)*)? ")" ("->" <type>)? <block>`
-    fn define_function_stmt(&mut self, _identifier: String) -> Result<super::Statement, Failure> {
-        unimplemented!() // TODO
+    fn define_function_stmt(&mut self, current_indent: usize, identifier: String) -> Result<super::Statement, Failure> {
+        self.consume_token_of_expected_type(&lexer::TokenType::BracketOpen, "open bracket ( token")?;
+
+        let mut parameters = Vec::new();
+
+        // Check firstly if there are any parameters for this function:
+        if self.check_type_of_peeked_token(&lexer::TokenType::BracketClose, "function definition")? {
+            log::trace!("Function has no parameters");
+        } else {
+            loop {
+                parameters.push(self.parse_parameter()?);
+                
+                if self.consume_token_if_type(&lexer::TokenType::Comma,
+                    "comma , token to seperate function parameters")?.is_none() { break }
+            }
+        }
+
+        self.consume_token_of_expected_type(&lexer::TokenType::BracketClose, "close bracket ) token")?;
+
+        let return_type = if self.consume_token_if_type(&lexer::TokenType::Arrow, "function definition")?.is_some() {
+            Some(self.parse_type()?)
+        }
+        else { None };
+
+        Ok(super::Statement::FunctionDefinition {
+            identifier, parameters, return_type,
+            body: self.block(current_indent)?
+        })
     }
 
 
@@ -176,21 +202,20 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     /// initial assignment value for that variable.
     ///
     /// `<declaration> ::= <type> identifier ("=" <expr>)?`
-    /* // TODO! fn variable_declaration_stmt(&mut self) -> Result<super::Statement, Failure> {
+    fn variable_declaration_stmt(&mut self) -> Result<super::Statement, Failure> {
         let var_type = self.parse_type()?;
         
-        let identifier = match self.consume_token_of_expected_type(&lexer::TokenType::Identifier, "variable identifier")?.tok_type {
-            lexer::TokenType::Identifier(x) => x
-        };
+        let identifier_tok = self.consume_token("variable identifier")?;
+        let identifier = extract_identifier_string(identifier_tok, "variable identifier")?;
 
-        // variable declaration can optionally include a value for said variable:
+        // Variable declaration can optionally include a value for said variable:
         let value = if self.consume_token_if_type(&lexer::TokenType::Equals, "varriable declaration").unwrap_or(None).is_some() {
             Some(self.expression()?)
         }
         else { None };
 
         Ok(super::Statement::VariableDeclaration { var_type, identifier, value })
-    }*/
+    }
 
     /// Parse a variable assignment statement. The identifier token is already
     /// assumed to have been consumed and the identifier string from said token
@@ -225,6 +250,17 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
 
             _ => Err(Failure::UnexpectedToken(tok, "type"))
         }
+    }
+
+    fn parse_parameter(&mut self) -> Result<super::Parameter, Failure> {
+        let param_type = self.parse_type()?;
+        
+        let identifier_tok = self.consume_token("function parameter identifier")?;
+        let position = identifier_tok.lexeme.pos.clone();
+        
+        Ok(super::Parameter(param_type,
+                            extract_identifier_string(identifier_tok, "function parameter identifier")?,
+                            position))
     }
 
     /// Parse a block (a collection of one or more sequential statements that
@@ -432,6 +468,13 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     }
 }
 
+fn extract_identifier_string(tok: lexer::Token, msg: &'static str) -> Result<String, Failure> {
+    match tok.tok_type {
+        lexer::TokenType::Identifier(x) => Ok(x),
+        _ => Err(Failure::UnexpectedToken(tok, msg))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::parsing;
@@ -442,7 +485,7 @@ mod tests {
         ($x:expr, $y:pat) => {
             match $x {
                 $y => {}
-                _ => panic!("Expression is not of correct type: {:?}", $x)
+                _ => panic!("The following is not of the required type: {:?}", $x)
             }
         };
     }
@@ -474,23 +517,41 @@ mod tests {
                 x = \"that\"\n\
         ");
 
-        assert_pattern!(
-            prsr.if_stmt(0),
-            Ok(parsing::Statement::If {
-                condition: parsing::Expression::BooleanLiteral { pos: _, value: true },
-                if_block: parsing::Block(_),
-                else_block: None
-            })
-        );
+        assert_pattern!(prsr.next().unwrap(), Ok(parsing::Statement::If {
+            condition: parsing::Expression::BooleanLiteral { pos: _, value: true },
+            if_block: parsing::Block(_),
+            else_block: None
+        }));
 
-        assert_pattern!(
-            prsr.next().unwrap(),
-            Ok(parsing::Statement::If {
-                condition: parsing::Expression::Equal(_, _),
-                if_block: parsing::Block(_),
-                else_block: Some(parsing::Block(_))
-            })
-        );
+        assert_pattern!(prsr.next().unwrap(), Ok(parsing::Statement::If {
+            condition: parsing::Expression::Equal(_, _),
+            if_block: parsing::Block(_),
+            else_block: Some(parsing::Block(_))
+        }));
+    }
+
+    #[test]
+    fn test_declaration_statements() {
+        pretty_env_logger::init();
+
+        let mut prsr = quick_parse("Int my_var = 2 + 5\n\
+                                    [Char] my_string = \"such and such\"\n\
+                                    Bool x");
+
+        assert_pattern!(prsr.next().unwrap(), Ok(parsing::Statement::VariableDeclaration {
+            var_type: parsing::Type::Identifier { pos: _, identifier: _ },
+            identifier: _, value: Some(parsing::Expression::Add(_, _))
+        }));
+
+        assert_pattern!(prsr.next().unwrap(), Ok(parsing::Statement::VariableDeclaration {
+            var_type: parsing::Type::Array(_), identifier: _,
+            value: Some(parsing::Expression::StringLiteral { pos: _, value: _ })
+        }));
+
+        assert_pattern!(prsr.next().unwrap(), Ok(parsing::Statement::VariableDeclaration {
+            var_type: parsing::Type::Identifier { pos: _, identifier: _ },
+            identifier: _, value: None
+        }));
     }
 
     #[test]

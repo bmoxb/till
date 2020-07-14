@@ -9,9 +9,10 @@
   * [x] Return line and character position alongside token and lexeme
 * [ ] Parser
   * [x] Create an unambigious grammar
-  * [ ] Implement the recursive-descent parser
+  * [x] Implement the recursive-descent parser
     * [x] Parse all expression types
-    * [ ] Parse all statement types
+    * [x] Parse all statement types
+  * [ ] Test extensively
 * [ ] Checker
   * [ ] Ensure functions and variables referenced are defined and within scope
   * [ ] Perform type checking
