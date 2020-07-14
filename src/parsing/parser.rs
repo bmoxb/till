@@ -343,17 +343,33 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
             // Array literals:
             lexer::TokenType::BracketSquareOpen => {
                 let exprs = if self.check_type_of_peeked_token(&lexer::TokenType::BracketSquareClose, "array literal")? {
-                    vec![]
+                    vec![] // Obviously an empty array literal `[]` should a closing
+                           // bracket token immediately follow the opening one.
                 }
                 else { self.expressions()? };
                 
-                self.consume_token_of_expected_type(&lexer::TokenType::BracketSquareClose, "closing square bracket ]")?;
+                self.consume_token_of_expected_type(&lexer::TokenType::BracketSquareClose, "array literal closing square bracket ] token")?;
                 
                 Ok(super::Expression::ArrayLiteral(exprs))
             }
 
-            // TODO! Either a variable dereference or function call:
-            lexer::TokenType::Identifier(_) => Ok(super::Expression::Variable(tok)),
+            lexer::TokenType::Identifier(_) => {
+                // If open bracket follows identifier, then this must be a function
+                // call:
+                if self.consume_token_if_type(&lexer::TokenType::BracketOpen, "primary expression").unwrap_or(None).is_some() {
+                    let args = if self.check_type_of_peeked_token(&lexer::TokenType::BracketClose, "function call")? {
+                        vec![] // As with array literal above, an immediately
+                               // following closing brackets means a function
+                               // without any arguments.
+                    }
+                    else { self.expressions()? };
+
+                    self.consume_token_of_expected_type(&lexer::TokenType::BracketClose, "function call closing bracket ) token")?;
+
+                    Ok(super::Expression::FunctionCall(tok, args))
+                }
+                else { Ok(super::Expression::Variable(tok)) }
+            }
 
             lexer::TokenType::NumberLiteral(_) => Ok(super::Expression::NumberLiteral(tok)),
             lexer::TokenType::StringLiteral(_) => Ok(super::Expression::StringLiteral(tok)),
@@ -465,8 +481,26 @@ mod tests {
     #[test]
     fn test_array_literal_expressions() {
         assert_pattern!(quick_parse("[10 - 2, 2.5 * 6]").primary_expr(), Ok(parsing::Expression::ArrayLiteral(_)));
-        assert_pattern!(quick_parse("[]").primary_expr(), Ok(parsing::Expression::ArrayLiteral(_)));
+        assert_pattern!(quick_parse("[]").expression(), Ok(parsing::Expression::ArrayLiteral(_)));
         assert_pattern!(quick_parse("[1, 2, 3").primary_expr(), Err(super::Failure::UnexpectedStreamEnd(_)));
+    }
+
+    #[test]
+    fn test_function_call_expressions() {
+        assert_pattern!(quick_parse("func(10 + 2)").expression(), Ok(parsing::Expression::FunctionCall(_, _)));
+        assert_pattern!(quick_parse("no_args_function()").primary_expr(), Ok(parsing::Expression::FunctionCall(_, _)));
+        assert_pattern!(quick_parse("func(1, 5").expression(), Err(super::Failure::UnexpectedStreamEnd(_)));
+    }
+
+    #[test]
+    fn test_variable_dereference_expressions() {
+        assert_pattern!(
+            quick_parse("my_variable").primary_expr(),
+            Ok(parsing::Expression::Variable(lexer::Token {
+                tok_type: lexer::TokenType::Identifier(_),
+                lexeme: _
+            }))
+        );
     }
 
     #[test]
