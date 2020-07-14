@@ -134,8 +134,8 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
             }
 
             // Variable declaration:
-            lexer::TokenType::BracketSquareClose |
-            lexer::TokenType::TypeIdentifier(_) => self.variable_declaration_stmt(),
+            /*lexer::TokenType::BracketSquareClose |
+            lexer::TokenType::TypeIdentifier(_) => self.variable_declaration_stmt(),*/
 
             _ => Err(Failure::UnexpectedToken(self.consume_token("statement")?, stmt_type_name))
         }
@@ -176,9 +176,21 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     /// initial assignment value for that variable.
     ///
     /// `<declaration> ::= <type> identifier ("=" <expr>)?`
-    fn variable_declaration_stmt(&mut self) -> Result<super::Statement, Failure> {
-        unimplemented!() // TODO
-    }
+    /* // TODO! fn variable_declaration_stmt(&mut self) -> Result<super::Statement, Failure> {
+        let var_type = self.parse_type()?;
+        
+        let identifier = match self.consume_token_of_expected_type(&lexer::TokenType::Identifier, "variable identifier")?.tok_type {
+            lexer::TokenType::Identifier(x) => x
+        };
+
+        // variable declaration can optionally include a value for said variable:
+        let value = if self.consume_token_if_type(&lexer::TokenType::Equals, "varriable declaration").unwrap_or(None).is_some() {
+            Some(self.expression()?)
+        }
+        else { None };
+
+        Ok(super::Statement::VariableDeclaration { var_type, identifier, value })
+    }*/
 
     /// Parse a variable assignment statement. The identifier token is already
     /// assumed to have been consumed and the identifier string from said token
@@ -186,12 +198,33 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     ///
     /// `<assignment> ::= identifier "=" <expr>`
     fn assignment_stmt(&mut self, identifier: String) -> Result<super::Statement, Failure> {
-        self.consume_token_of_expected_type(&lexer::TokenType::Equals, "equals = after identifier to indicate assignment")?;
+        self.consume_token_of_expected_type(&lexer::TokenType::Equals, "equals = after identifier")?;
 
         Ok(super::Statement::VariableAssignment {
             identifier,
             assign_to: self.expression()?
         })
+    }
+
+    fn parse_type(&mut self) -> Result<super::Type, Failure> {
+        let tok = self.consume_token("type")?;
+        
+        match tok.tok_type {
+            // Array type:
+            lexer::TokenType::BracketSquareOpen => {
+                let contained_type = Box::new(self.parse_type()?);
+                self.consume_token_of_expected_type(&lexer::TokenType::BracketSquareClose, "closing square bracket ] for array type")?;
+                Ok(super::Type::Array(contained_type))
+            }
+
+            // Type identifier:
+            lexer::TokenType::TypeIdentifier(identifier) => Ok(super::Type::Identifier {
+                pos: tok.lexeme.pos,
+                identifier
+            }),
+
+            _ => Err(Failure::UnexpectedToken(tok, "type"))
+        }
     }
 
     /// Parse a block (a collection of one or more sequential statements that
@@ -350,10 +383,10 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
                 
                 self.consume_token_of_expected_type(&lexer::TokenType::BracketSquareClose, "array literal closing square bracket ] token")?;
                 
-                Ok(super::Expression::ArrayLiteral(exprs))
+                Ok(super::Expression::Array(exprs))
             }
 
-            lexer::TokenType::Identifier(_) => {
+            lexer::TokenType::Identifier(identifier) => {
                 // If open bracket follows identifier, then this must be a function
                 // call:
                 if self.consume_token_if_type(&lexer::TokenType::BracketOpen, "primary expression").unwrap_or(None).is_some() {
@@ -366,15 +399,20 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
 
                     self.consume_token_of_expected_type(&lexer::TokenType::BracketClose, "function call closing bracket ) token")?;
 
-                    Ok(super::Expression::FunctionCall(tok, args))
+                    Ok(super::Expression::FunctionCall {
+                        args, identifier,
+                        pos: tok.lexeme.pos
+                    })
                 }
-                else { Ok(super::Expression::Variable(tok)) }
+                else {
+                    Ok(super::Expression::Variable { identifier, pos: tok.lexeme.pos })
+                }
             }
 
-            lexer::TokenType::NumberLiteral(_) => Ok(super::Expression::NumberLiteral(tok)),
-            lexer::TokenType::StringLiteral(_) => Ok(super::Expression::StringLiteral(tok)),
-            lexer::TokenType::TrueKeyword |
-            lexer::TokenType::FalseKeyword => Ok(super::Expression::BooleanLiteral(tok)),
+            lexer::TokenType::NumberLiteral(value) => Ok(super::Expression::NumberLiteral { value, pos: tok.lexeme.pos }),
+            lexer::TokenType::StringLiteral(value) => Ok(super::Expression::StringLiteral { value, pos: tok.lexeme.pos }),
+            lexer::TokenType::TrueKeyword => Ok(super::Expression::BooleanLiteral { value: true, pos: tok.lexeme.pos }),
+            lexer::TokenType::FalseKeyword => Ok(super::Expression::BooleanLiteral { value: false, pos: tok.lexeme.pos }),
 
             _ => Err(Failure::UnexpectedToken(tok, "primary expression"))
         }
@@ -439,7 +477,7 @@ mod tests {
         assert_pattern!(
             prsr.if_stmt(0),
             Ok(parsing::Statement::If {
-                condition: parsing::Expression::BooleanLiteral(_),
+                condition: parsing::Expression::BooleanLiteral { pos: _, value: true },
                 if_block: parsing::Block(_),
                 else_block: None
             })
@@ -456,58 +494,59 @@ mod tests {
     }
 
     #[test]
+    fn test_parsing_types() {
+        assert_pattern!(quick_parse("Int").parse_type(),
+            Ok(parsing::Type::Identifier { pos: _, identifier: _ }));
+        assert_pattern!(quick_parse("[Char]").parse_type(), Ok(parsing::Type::Array(_)));
+        assert_pattern!(quick_parse("[Int").parse_type(), Err(super::Failure::UnexpectedStreamEnd(_)));
+    }
+
+    #[test]
     #[allow(illegal_floating_point_literal_pattern)]
     fn test_simple_primary_expressions() {
         let mut prsr = quick_parse("10.5 \"string\" my_identifier true =");
 
         assert_pattern!(prsr.primary_expr(),
-            Ok(parsing::Expression::NumberLiteral(lexer::Token {
-                tok_type: lexer::TokenType::NumberLiteral(10.5),
-                lexeme: _
-            }))
-        );
-        assert_pattern!(prsr.expression(), Ok(parsing::Expression::StringLiteral(_)));
-        assert_pattern!(prsr.primary_expr(), Ok(parsing::Expression::Variable(_)));
+            Ok(parsing::Expression::NumberLiteral { pos: _, value: 10.5 }));
         assert_pattern!(prsr.expression(),
-            Ok(parsing::Expression::BooleanLiteral(lexer::Token {
-                tok_type: lexer::TokenType::TrueKeyword,
-                lexeme: _
-            }))
-        );
+            Ok(parsing::Expression::StringLiteral { pos: _, value: _ }));
+        assert_pattern!(prsr.primary_expr(),
+            Ok(parsing::Expression::Variable { pos: _, identifier: _ }));
+        assert_pattern!(prsr.expression(),
+            Ok(parsing::Expression::BooleanLiteral { pos: _, value: true }));
         assert_pattern!(prsr.primary_expr(), Err(super::Failure::UnexpectedToken(_, _)));
         assert_pattern!(prsr.expression(), Err(super::Failure::UnexpectedStreamEnd(_)));
     }
 
     #[test]
     fn test_array_literal_expressions() {
-        assert_pattern!(quick_parse("[10 - 2, 2.5 * 6]").primary_expr(), Ok(parsing::Expression::ArrayLiteral(_)));
-        assert_pattern!(quick_parse("[]").expression(), Ok(parsing::Expression::ArrayLiteral(_)));
+        assert_pattern!(quick_parse("[10 - 2, 2.5 * 6]").primary_expr(), Ok(parsing::Expression::Array(_)));
+        assert_pattern!(quick_parse("[]").expression(), Ok(parsing::Expression::Array(_)));
         assert_pattern!(quick_parse("[1, 2, 3").primary_expr(), Err(super::Failure::UnexpectedStreamEnd(_)));
     }
 
     #[test]
     fn test_function_call_expressions() {
-        assert_pattern!(quick_parse("func(10 + 2)").expression(), Ok(parsing::Expression::FunctionCall(_, _)));
-        assert_pattern!(quick_parse("no_args_function()").primary_expr(), Ok(parsing::Expression::FunctionCall(_, _)));
+        assert_pattern!(quick_parse("func(10 + 2)").expression(),
+            Ok(parsing::Expression::FunctionCall { pos: _, identifier: _, args: _ }));
+        assert_pattern!(quick_parse("no_args_function()").primary_expr(),
+            Ok(parsing::Expression::FunctionCall { pos: _, identifier: _, args: _ }));
         assert_pattern!(quick_parse("func(1, 5").expression(), Err(super::Failure::UnexpectedStreamEnd(_)));
     }
 
     #[test]
     fn test_variable_dereference_expressions() {
-        assert_pattern!(
-            quick_parse("my_variable").primary_expr(),
-            Ok(parsing::Expression::Variable(lexer::Token {
-                tok_type: lexer::TokenType::Identifier(_),
-                lexeme: _
-            }))
-        );
+        assert_pattern!(quick_parse("my_variable").primary_expr(),
+            Ok(parsing::Expression::Variable { pos: _, identifier: _ }));
     }
 
     #[test]
+    #[allow(illegal_floating_point_literal_pattern)]
     fn test_unary_expressions() {
         let mut prsr = quick_parse("10 ~10 !true");
 
-        assert_pattern!(prsr.unary_expr(), Ok(parsing::Expression::NumberLiteral(_)));
+        assert_pattern!(prsr.unary_expr(),
+            Ok(parsing::Expression::NumberLiteral { pos: _, value: 10.0 }));
         assert_pattern!(prsr.expression(), Ok(parsing::Expression::UnaryMinus(_)));
         assert_pattern!(prsr.unary_expr(), Ok(parsing::Expression::BooleanNot(_)));
     }

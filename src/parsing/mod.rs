@@ -1,6 +1,6 @@
 pub mod parser;
 
-use crate::lexing::lexer;
+use crate::stream;
 
 #[derive(Debug, PartialEq)]
 pub enum Statement {
@@ -18,8 +18,8 @@ pub enum Statement {
     },
 
     VariableDeclaration {
-        identifier: String,
         var_type: Type,
+        identifier: String,
         value: Option<Expression>
     },
 
@@ -30,11 +30,11 @@ pub enum Statement {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct Block (Vec<Statement>);
+pub struct Block(Vec<Statement>);
 
 #[derive(Debug, PartialEq)]
 pub enum Type {
-    Identifier(String),
+    Identifier {pos: stream::Position, identifier: String },
     Array(Box<Type>)
 }
 
@@ -48,15 +48,13 @@ pub enum Expression {
     Subtract(Box<Expression>, Box<Expression>),
     Multiply(Box<Expression>, Box<Expression>),
     Divide(Box<Expression>, Box<Expression>),
-
     BooleanNot(Box<Expression>),
     UnaryMinus(Box<Expression>),
+    Array(Vec<Expression>),
 
-    NumberLiteral(lexer::Token),
-    StringLiteral(lexer::Token),
-    BooleanLiteral(lexer::Token),
-    ArrayLiteral(Vec<Expression>),
-
-    Variable(lexer::Token),
-    FunctionCall(lexer::Token, Vec<Expression>)
+    NumberLiteral { pos: stream::Position, value: f64 },
+    StringLiteral { pos: stream::Position, value: String },
+    BooleanLiteral { pos: stream::Position, value: bool },
+    Variable { pos: stream::Position, identifier: String },
+    FunctionCall { pos: stream::Position, identifier: String, args: Vec<Expression> }
 }
