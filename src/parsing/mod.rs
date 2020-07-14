@@ -55,5 +55,8 @@ pub enum Expression {
     NumberLiteral(lexer::Token),
     StringLiteral(lexer::Token),
     BooleanLiteral(lexer::Token),
-    Variable(lexer::Token)
+    ArrayLiteral(Vec<Expression>),
+
+    Variable(lexer::Token),
+    FunctionCall(lexer::Token, Vec<Expression>)
 }

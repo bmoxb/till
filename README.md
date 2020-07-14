@@ -10,6 +10,8 @@
 * [ ] Parser
   * [x] Create an unambigious grammar
   * [ ] Implement the recursive-descent parser
+    * [ ] Parse all expression types
+    * [ ] Parse all statement types
 * [ ] Checker
   * [ ] Ensure functions and variables referenced are defined and within scope
   * [ ] Perform type checking

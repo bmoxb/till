@@ -13,16 +13,14 @@ pub fn input<T: Iterator<Item=lexer::Token>>(tokens: T) -> StatementStream<T> {
 #[derive(Debug)]
 pub enum Failure {
     UnexpectedToken(lexer::Token, &'static str),
-    UnexpectedStreamEnd(&'static str),
-    //UnexpectedIndent { pos: stream::Position, unexpected_indent: usize, expected_indent: usize }
+    UnexpectedStreamEnd(&'static str)
 }
 
 impl fmt::Display for Failure {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Failure::UnexpectedToken(tok, expected) => write!(f, "Expected {} yet encountered unexpected {}", expected, tok),
-            Failure::UnexpectedStreamEnd(expected) => write!(f, "Encountered the end of the token stream yet expected {}", expected),
-            //Failure::UnexpectedIndent { pos, unexpected_indent, expected_indent } => write!(f, "Expected an indent level of {} tabs yet encoutered {} tabs at {}", expected_indent, unexpected_indent, pos)
+            Failure::UnexpectedStreamEnd(expected) => write!(f, "Encountered the end of the token stream yet expected {}", expected)
         }
     }
 }
@@ -258,7 +256,8 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
         expr
     }
 
-    /// Parse a TILL expression.
+    /// Parse a TILL expression. Will return Failure should the token stream be
+    /// at its end or if an expected token is encountered.
     ///
     /// `<expr> ::= <comparison> (("!="|"==") <comparison>)*`
     fn expression(&mut self) -> Result<super::Expression, Failure> {
@@ -325,9 +324,8 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     ///
     /// ```
     /// <primary> ::= number | string | character | "true" | "false"
-    ///             | "[" (<expr> ("," <expr>)*)? "]"
-    ///             | "(" <expr> ")"
-    ///             | identifier
+    ///             | "[" <exprs>? "]" | "(" <expr> ")"
+    ///             | identifier ("(" <exprs>? ")")?
     /// ```
     fn primary_expr(&mut self) -> Result<super::Expression, Failure> {
         let tok = self.consume_token("primary expression")?;
@@ -342,17 +340,41 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
                 Ok(expr)
             }
 
-            // TODO: Array literals...
-            //lexer::TokenType::BracketSquareOpen => {}
+            // Array literals:
+            lexer::TokenType::BracketSquareOpen => {
+                let exprs = if self.check_type_of_peeked_token(&lexer::TokenType::BracketSquareClose, "array literal")? {
+                    vec![]
+                }
+                else { self.expressions()? };
+                
+                self.consume_token_of_expected_type(&lexer::TokenType::BracketSquareClose, "closing square bracket ]")?;
+                
+                Ok(super::Expression::ArrayLiteral(exprs))
+            }
+
+            // TODO! Either a variable dereference or function call:
+            lexer::TokenType::Identifier(_) => Ok(super::Expression::Variable(tok)),
 
             lexer::TokenType::NumberLiteral(_) => Ok(super::Expression::NumberLiteral(tok)),
             lexer::TokenType::StringLiteral(_) => Ok(super::Expression::StringLiteral(tok)),
-            lexer::TokenType::Identifier(_) => Ok(super::Expression::Variable(tok)),
             lexer::TokenType::TrueKeyword |
             lexer::TokenType::FalseKeyword => Ok(super::Expression::BooleanLiteral(tok)),
 
             _ => Err(Failure::UnexpectedToken(tok, "primary expression"))
         }
+    }
+
+    /// `<exprs> ::= <expr> ("," <expr>)*`
+    fn expressions(&mut self) -> Result<Vec<super::Expression>, Failure> {
+        let mut exprs = vec![self.expression()?];
+
+        // Ignore result as end of stream should not cause error here:
+        while self.consume_token_if_type(&lexer::TokenType::Comma, "comma , token seperating expressions").unwrap_or(None).is_some() {
+            log::trace!("Comma seperating expressions consumed");
+            exprs.push(self.expression()?);
+        }
+
+        Ok(exprs)
     }
 }
 
@@ -364,7 +386,7 @@ mod tests {
 
     macro_rules! assert_pattern {
         ($x:expr, $y:pat) => {
-            match Result::unwrap($x) {
+            match $x {
                 $y => {}
                 _ => panic!("Expression is not of correct type: {:?}", $x)
             }
@@ -380,10 +402,10 @@ mod tests {
     fn test_assignment_statements() {
         assert_pattern!(
             quick_parse("a = 10 + 5").next().unwrap(),
-            parsing::Statement::VariableAssignment {
+            Ok(parsing::Statement::VariableAssignment {
                 identifier: _,
                 assign_to: parsing::Expression::Add(_, _)
-            }
+            })
         );
     }
 
@@ -400,59 +422,76 @@ mod tests {
 
         assert_pattern!(
             prsr.if_stmt(0),
-            parsing::Statement::If {
+            Ok(parsing::Statement::If {
                 condition: parsing::Expression::BooleanLiteral(_),
                 if_block: parsing::Block(_),
                 else_block: None
-            }
+            })
         );
 
         assert_pattern!(
             prsr.next().unwrap(),
-            parsing::Statement::If {
+            Ok(parsing::Statement::If {
                 condition: parsing::Expression::Equal(_, _),
                 if_block: parsing::Block(_),
                 else_block: Some(parsing::Block(_))
-            }
+            })
         );
     }
 
     #[test]
     #[allow(illegal_floating_point_literal_pattern)]
     fn test_simple_primary_expressions() {
-        let mut prsr = quick_parse("10.5 \"string\" my_identifier true");
+        let mut prsr = quick_parse("10.5 \"string\" my_identifier true =");
 
         assert_pattern!(prsr.primary_expr(),
-            parsing::Expression::NumberLiteral(lexer::Token {
+            Ok(parsing::Expression::NumberLiteral(lexer::Token {
                 tok_type: lexer::TokenType::NumberLiteral(10.5),
                 lexeme: _
-            })
+            }))
         );
-        assert_pattern!(prsr.expression(), parsing::Expression::StringLiteral(_));
-        assert_pattern!(prsr.primary_expr(), parsing::Expression::Variable(_));
+        assert_pattern!(prsr.expression(), Ok(parsing::Expression::StringLiteral(_)));
+        assert_pattern!(prsr.primary_expr(), Ok(parsing::Expression::Variable(_)));
         assert_pattern!(prsr.expression(),
-            parsing::Expression::BooleanLiteral(lexer::Token {
+            Ok(parsing::Expression::BooleanLiteral(lexer::Token {
                 tok_type: lexer::TokenType::TrueKeyword,
                 lexeme: _
-            })
+            }))
         );
+        assert_pattern!(prsr.primary_expr(), Err(super::Failure::UnexpectedToken(_, _)));
+        assert_pattern!(prsr.expression(), Err(super::Failure::UnexpectedStreamEnd(_)));
+    }
+
+    #[test]
+    fn test_array_literal_expressions() {
+        assert_pattern!(quick_parse("[10 - 2, 2.5 * 6]").primary_expr(), Ok(parsing::Expression::ArrayLiteral(_)));
+        assert_pattern!(quick_parse("[]").primary_expr(), Ok(parsing::Expression::ArrayLiteral(_)));
+        assert_pattern!(quick_parse("[1, 2, 3").primary_expr(), Err(super::Failure::UnexpectedStreamEnd(_)));
     }
 
     #[test]
     fn test_unary_expressions() {
         let mut prsr = quick_parse("10 ~10 !true");
 
-        assert_pattern!(prsr.unary_expr(), parsing::Expression::NumberLiteral(_));
-        assert_pattern!(prsr.expression(), parsing::Expression::UnaryMinus(_));
-        assert_pattern!(prsr.unary_expr(), parsing::Expression::BooleanNot(_));
+        assert_pattern!(prsr.unary_expr(), Ok(parsing::Expression::NumberLiteral(_)));
+        assert_pattern!(prsr.expression(), Ok(parsing::Expression::UnaryMinus(_)));
+        assert_pattern!(prsr.unary_expr(), Ok(parsing::Expression::BooleanNot(_)));
     }
 
     #[test]
     fn test_expression_prescendece() {
-        assert_pattern!(quick_parse("10 + 2 * 5").expression(), parsing::Expression::Add(_, _));
-        assert_pattern!(quick_parse("2 * 5 + 10").expression(), parsing::Expression::Add(_, _));
-        assert_pattern!(quick_parse("(10 + 2) * 5").expression(), parsing::Expression::Multiply(_, _));
-        assert_pattern!(quick_parse("10 > 2 / 5").expression(), parsing::Expression::GreaterThan(_, _));
-        assert_pattern!(quick_parse("true == 10 > 2 / 5").expression(), parsing::Expression::Equal(_, _));
+        assert_pattern!(quick_parse("10 + 2 * 5").expression(), Ok(parsing::Expression::Add(_, _)));
+        assert_pattern!(quick_parse("2 * 5 + 10").expression(), Ok(parsing::Expression::Add(_, _)));
+        assert_pattern!(quick_parse("(10 + 2) * 5").expression(), Ok(parsing::Expression::Multiply(_, _)));
+        assert_pattern!(quick_parse("10 > 2 / 5").expression(), Ok(parsing::Expression::GreaterThan(_, _)));
+        assert_pattern!(quick_parse("true == 10 > 2 / 5").expression(), Ok(parsing::Expression::Equal(_, _)));
+    }
+
+    #[test]
+    fn test_sequences_of_expressions() {
+        assert_eq!(quick_parse("10 + 5, 2").expressions().unwrap().len(), 2);
+        assert_eq!(quick_parse("10 + 5").expressions().unwrap().len(), 1);
+        assert_pattern!(quick_parse("").expressions(), Err(super::Failure::UnexpectedStreamEnd(_)));
+        assert_pattern!(quick_parse(",").expressions(), Err(super::Failure::UnexpectedToken(_, _)));
     }
 }
