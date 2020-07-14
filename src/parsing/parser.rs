@@ -295,7 +295,8 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
                 log::trace!("Next statement in block at same indentation level: {}", block_indent);
             }
             else {
-                self.consume_token_of_expected_type(&lexer::TokenType::Newline(block_indent - 1), "block indent")?;
+                // TODO: Check indent level doesn't increase!
+                //self.consume_token_of_expected_type(&lexer::TokenType::Newline(block_indent - 1), "block indent")?;
                 log::debug!("Indent decrease so ending block");
                 break;
             }
