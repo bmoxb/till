@@ -13,14 +13,17 @@ pub fn input<T: Iterator<Item=lexer::Token>>(tokens: T) -> StatementStream<T> {
 #[derive(Debug)]
 pub enum Failure {
     UnexpectedToken(lexer::Token, &'static str),
-    UnexpectedStreamEnd(&'static str)
+    UnexpectedStreamEnd(&'static str),
+    UnexpectedIntentIncrease { expected_indent: usize, encountered_indent: usize }
 }
 
 impl fmt::Display for Failure {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Failure::UnexpectedToken(tok, expected) => write!(f, "Expected {} yet encountered unexpected {}", expected, tok),
-            Failure::UnexpectedStreamEnd(expected) => write!(f, "Encountered the end of the token stream yet expected {}", expected)
+            Failure::UnexpectedStreamEnd(expected) => write!(f, "Encountered the end of the token stream yet expected {}", expected),
+            Failure::UnexpectedIntentIncrease { expected_indent, encountered_indent } =>
+                write!(f, "Encountered an unexpected increase of indent from the expected level of {} to an indentation level of {} tabs", expected_indent, encountered_indent)
         }
     }
 }
@@ -155,7 +158,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
                 // Note that the `Result` of the following method call is not
                 // handled as else blocks are optional and therefore checking
                 // for one shouldn't cause error when at token stream end.
-                if self.consume_token_if_type(&lexer::TokenType::ElseKeyword, "if statement").unwrap_or(None).is_some() {
+                if self.consume_token_if_type(&lexer::TokenType::ElseKeyword, "").unwrap_or(None).is_some() {
                     Some(self.block(current_indent)?)
                 }
                 else { None }
@@ -206,7 +209,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
         let var_type = self.parse_type()?;
         
         let identifier_tok = self.consume_token("variable identifier")?;
-        let identifier = extract_identifier_string(identifier_tok, "variable identifier")?;
+        let identifier = extract_string_from_identifier_token(identifier_tok, "variable identifier")?;
 
         // Variable declaration can optionally include a value for said variable:
         let value = if self.consume_token_if_type(&lexer::TokenType::Equals, "varriable declaration").unwrap_or(None).is_some() {
@@ -259,7 +262,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
         let position = identifier_tok.lexeme.pos.clone();
         
         Ok(super::Parameter(param_type,
-                            extract_identifier_string(identifier_tok, "function parameter identifier")?,
+                            extract_string_from_identifier_token(identifier_tok, "function parameter identifier")?,
                             position))
     }
 
@@ -267,7 +270,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     /// start at an identation level one higher than the previous indentation
     /// level).
     ///
-    /// `<block> ::= newlines indentincr <chunk> indentdecr`
+    /// `<block> ::= newlines indentincr <chunk> indentdecr newlines?`
     fn block(&mut self, indent_before_block: usize) -> Result<super::Block, Failure> {
         let block_indent = indent_before_block + 1;
         
@@ -291,14 +294,31 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
             let stmt = self.statement(block_indent, "statement contained in block")?;
             stmts.push(stmt);
 
-            if self.consume_token_if_type(&lexer::TokenType::Newline(block_indent), "block indent")?.is_some() {
-                log::trace!("Next statement in block at same indentation level: {}", block_indent);
-            }
-            else {
-                // TODO: Check indent level doesn't increase!
-                //self.consume_token_of_expected_type(&lexer::TokenType::Newline(block_indent - 1), "block indent")?;
-                log::debug!("Indent decrease so ending block");
-                break;
+            match self.peek_token("newline and indentation between statements in a block") {
+                Ok(lexer::Token { tok_type: lexer::TokenType::Newline(indent), lexeme: _ }) => {
+                    if *indent == block_indent {
+                        log::trace!("Next statement in block at same indentation level of {}", indent);
+                    }
+                    else if *indent < block_indent {
+                        log::debug!("Block ending as indent decreased to {}", indent);
+                        let _ = self.consume_token(""); // Consume the newline token.
+                        break;
+                    }
+                    else {
+                        log::info!("Indent has unexpectedly increased to {} so returning Failure", indent);
+                        return Err(Failure::UnexpectedIntentIncrease {
+                            expected_indent: block_indent,
+                            encountered_indent: *indent
+                        });
+                    }
+                }
+
+                Ok(_) | Err(Failure::UnexpectedStreamEnd(_)) => {
+                    log::info!("Stream ended during block so assuming this is the end of said block");
+                    break;
+                }
+
+                Err(x) => return Err(x) // Return any other type of error
             }
         }
 
@@ -469,7 +489,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     }
 }
 
-fn extract_identifier_string(tok: lexer::Token, msg: &'static str) -> Result<String, Failure> {
+fn extract_string_from_identifier_token(tok: lexer::Token, msg: &'static str) -> Result<String, Failure> {
     match tok.tok_type {
         lexer::TokenType::Identifier(x) => Ok(x),
         _ => Err(Failure::UnexpectedToken(tok, msg))
