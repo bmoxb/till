@@ -7,13 +7,15 @@
   * [x] Allow for the specification of states and transitions between them
   * [x] Define all states and transitions required for interpreting TILL
   * [x] Return line and character position alongside token and lexeme
-* [ ] Parser
-  * [x] Create an unambigious grammar
+* [x] Parser
+  * [x] Create an unambiguous grammar
   * [x] Implement the recursive-descent parser
     * [x] Parse all expression types
     * [x] Parse all statement types
-  * [ ] Test extensively
-* [ ] Checker
-  * [ ] Ensure functions and variables referenced are defined and within scope
-  * [ ] Perform type checking
 * [ ] Executor
+  * [ ] Perform type checking
+  * [ ] Ensure scoping rules are met
+  * [ ] Construct a final immediate representation of the parsed program
+  * [ ] Execute said representation
+* [ ] Provide appropriate debug logging at all stages
+* [ ] Test extensively
