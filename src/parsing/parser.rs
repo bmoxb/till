@@ -14,7 +14,7 @@ pub fn input<T: Iterator<Item=lexer::Token>>(tokens: T) -> StatementStream<T> {
 pub enum Failure {
     UnexpectedToken(lexer::Token, &'static str),
     UnexpectedStreamEnd(&'static str),
-    UnexpectedIntentIncrease { expected_indent: usize, encountered_indent: usize }
+    UnexpectedIndent { expected_indent: usize, encountered_indent: usize }
 }
 
 impl fmt::Display for Failure {
@@ -22,8 +22,8 @@ impl fmt::Display for Failure {
         match self {
             Failure::UnexpectedToken(tok, expected) => write!(f, "Expected {} yet encountered unexpected {}", expected, tok),
             Failure::UnexpectedStreamEnd(expected) => write!(f, "Encountered the end of the token stream yet expected {}", expected),
-            Failure::UnexpectedIntentIncrease { expected_indent, encountered_indent } =>
-                write!(f, "Encountered an unexpected increase of indent from the expected level of {} to an indentation level of {} tabs", expected_indent, encountered_indent)
+            Failure::UnexpectedIndent { expected_indent, encountered_indent } =>
+                write!(f, "Encountered an unexpected change in indentation from the expected level of {} to an indentation level of {} tabs", expected_indent, encountered_indent)
         }
     }
 }
@@ -38,10 +38,12 @@ impl<T: Iterator<Item=lexer::Token>> Iterator for StatementStream<T> {
     /// Return the next AST statement parsed from the given token stream.
     /// Returns None in the case of the token stream having reached its end.
     fn next(&mut self) -> Option<Self::Item> {
-        log::info!("-- Next Parsing --");
-
         if self.more_tokens_in_stream() {
             let stmt = self.statement(0, "top-level statement");
+
+            if let Ok(valid_stmt) = &stmt {
+                log::info!("Parsed next statement from token stream:\n{:#?}", valid_stmt);
+            }
 
             let _ = self.consume_token_if_type(&lexer::TokenType::Newline(0), "top-level statement");
 
@@ -115,7 +117,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     ///
     /// `<stmt> ::= <if> | <function> | <declaration> | <assignment>`
     fn statement(&mut self, current_indent: usize, stmt_type_name: &'static str) -> Result<super::Statement, Failure> {
-        log::debug!("Parsing statement...");
+        log::trace!("Parsing statement...");
 
         let coming_tok = self.peek_token("statement")?;
         match &coming_tok.tok_type {
@@ -176,9 +178,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
         let mut parameters = Vec::new();
 
         // Check firstly if there are any parameters for this function:
-        if self.check_type_of_peeked_token(&lexer::TokenType::BracketClose, "function definition")? {
-            log::trace!("Function has no parameters");
-        } else {
+        if !self.check_type_of_peeked_token(&lexer::TokenType::BracketClose, "function definition")? {
             loop {
                 parameters.push(self.parse_parameter()?);
                 
@@ -275,7 +275,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
         let block_indent = indent_before_block + 1;
         
         self.consume_token_of_expected_type(&lexer::TokenType::Newline(block_indent), "increase indent for start of block")?; // TODO: unexpected indent error?
-        log::debug!("Start of block with indent level: {}", block_indent);
+        log::trace!("Start of block with indent level: {}", block_indent);
 
         let stmts = self.block_stmts(block_indent)?;
         Ok(super::Block(stmts))
@@ -300,13 +300,13 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
                         log::trace!("Next statement in block at same indentation level of {}", indent);
                     }
                     else if *indent < block_indent {
-                        log::debug!("Block ending as indent decreased to {}", indent);
+                        log::trace!("Block ending as indent decreased to {}", indent);
                         let _ = self.consume_token(""); // Consume the newline token.
                         break;
                     }
                     else {
                         log::info!("Indent has unexpectedly increased to {} so returning Failure", indent);
-                        return Err(Failure::UnexpectedIntentIncrease {
+                        return Err(Failure::UnexpectedIndent {
                             expected_indent: block_indent,
                             encountered_indent: *indent
                         });
@@ -479,9 +479,9 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     fn expressions(&mut self) -> Result<Vec<super::Expression>, Failure> {
         let mut exprs = vec![self.expression()?];
 
-        // Ignore result as end of stream should not cause error here:
+        // Consume the comma tokens seperating expressions (ignore result as end
+        // of stream should not cause error here):
         while self.consume_token_if_type(&lexer::TokenType::Comma, "comma , token seperating expressions").unwrap_or(None).is_some() {
-            log::trace!("Comma seperating expressions consumed");
             exprs.push(self.expression()?);
         }
 
@@ -553,8 +553,6 @@ mod tests {
 
     #[test]
     fn test_declaration_statements() {
-        pretty_env_logger::init();
-
         let mut prsr = quick_parse("Int my_var = 2 + 5\n\
                                     [Char] my_string = \"such and such\"\n\
                                     Bool x");

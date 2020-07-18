@@ -37,7 +37,7 @@ pub struct Parameter ( Type, String, stream::Position );
 
 #[derive(Debug, PartialEq)]
 pub enum Type {
-    Identifier {pos: stream::Position, identifier: String },
+    Identifier { pos: stream::Position, identifier: String },
     Array(Box<Type>)
 }
 

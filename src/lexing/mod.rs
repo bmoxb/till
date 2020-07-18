@@ -54,8 +54,6 @@ where StateKey: Eq + Copy + Hash + fmt::Debug, TokenType: Clone + fmt::Debug {
 
     /// Attempt to yield the next token.
     fn next(&mut self) -> Option<Self::Item> {
-        log::info!("-- Next Token --");
-
         let mut current_key = self.settings.initial_state_key;
         let mut text = String::new();
 
@@ -96,10 +94,7 @@ where StateKey: Eq + Copy + Hash + fmt::Debug, TokenType: Clone + fmt::Debug {
                 unexpected_char, self.settings.get_state(current_key)
             ))
         }
-        else {
-            log::debug!("Already reached end of stream!");
-            None
-        }
+        else { None } // Reached end of stream.
     }
 }
 
@@ -133,12 +128,11 @@ fn attempt_parse_lexeme_to_token<TokenType, StateKey>(lexeme: Lexeme, next_chr: 
 where TokenType: fmt::Debug + Clone {
     match final_state.parse.lexeme_string_to_token_type::<StateKey>(&lexeme.text) {
         Some(tok_type) => {
-            log::debug!("Lexeme {} parsed to token type: {:?}", lexeme, tok_type);
-            //Ok(LexToken(tok, lexeme, pos))
+            log::info!("Lexeme {} parsed to token type: {:?}", lexeme, tok_type);
             Ok(GenericToken { tok_type, lexeme })
         }
         None => {
-            log::debug!("Ccould not parse to token from lexeme: {}",  lexeme);
+            log::info!("Could not parse to token from lexeme: {}",  lexeme);
             Err(match next_chr {
                 Some(chr) => {
                     log::trace!("Failure to parse to token a result of unexpected character: {:?}", chr);

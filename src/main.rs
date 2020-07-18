@@ -72,8 +72,6 @@ fn execute_by_repl() {
 }
 
 fn execute(strm: stream::Stream) {
-    log::info!("Lexing...");
-    
     let tokens = lexing::lexer::input(strm).filter_map(|value| {
         match value {
             Ok(lex_tok) => Some(lex_tok),
@@ -84,8 +82,6 @@ fn execute(strm: stream::Stream) {
         }
     });
 
-    log::info!("Parsing...");
-
     let syntax_tree = parsing::parser::input(tokens).filter_map(|value| {
         match value {
             Ok(stmt) => Some(stmt),
@@ -95,12 +91,6 @@ fn execute(strm: stream::Stream) {
             }
         }
     });
-    
-    println!("{:#?}", syntax_tree.collect::<Vec<parsing::Statement>>());
 
-/*
-    log::info!("Type checking... TODO!");
-
-    log::info!("Executing... TODO!");
-*/
+    syntax_tree.last();
 }
