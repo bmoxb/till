@@ -488,7 +488,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ignored_characters() {
+    fn ignored_characters() {
         input(Stream::from_str("  5 6.2   "))
         .assert_next(TokenType::NumberLiteral(5.0))
         .assert_next(TokenType::NumberLiteral(6.2))
@@ -496,14 +496,14 @@ mod tests {
     }
 
     #[test]
-    fn test_number_literals() {
+    fn number_literals() {
         input(Stream::from_str("12.3 12."))
         .assert_next(TokenType::NumberLiteral(12.3))
         .assert_unexpected_eof_next();
     }
 
     #[test]
-    fn test_identifiers() {
+    fn identifiers() {
         input(Stream::from_str("someTHIng _with5and6   Type Nice1_"))
         .assert_next(TokenType::Identifier("someTHIng".to_string()))
         .assert_next(TokenType::Identifier("_with5and6".to_string()))
@@ -512,7 +512,7 @@ mod tests {
     }
 
     #[test]
-    fn test_keywords() {
+    fn keywords() {
         input(Stream::from_str("if else  while  true false"))
         .assert_next(TokenType::IfKeyword)
         .assert_next(TokenType::ElseKeyword)
@@ -522,7 +522,7 @@ mod tests {
     }
 
     #[test]
-    fn test_indentation() {
+    fn indentation() {
         input(Stream::from_str("0\n\t1\n\t\t2\n0   \n\t\t\n\t"))
         .assert_next(TokenType::NumberLiteral(0.0))
         .assert_next(TokenType::Newline(1))
@@ -537,7 +537,7 @@ mod tests {
     }
 
     #[test]
-    fn test_string_literals() {
+    fn string_literals() {
         input(Stream::from_str("\"\" \"hello\\tworld\" \"世界\" \"\\n\\t\\\"\\\\\" \"not terminated..."))
         .assert_next(TokenType::StringLiteral("".to_string()))
         .assert_next(TokenType::StringLiteral("hello\tworld".to_string()))
@@ -547,7 +547,7 @@ mod tests {
     }
 
     #[test]
-    fn test_char_literals() {
+    fn char_literals() {
         input(Stream::from_str("'' 'a' 'わ' '\\'' '\\n'"))
         .assert_next(TokenType::CharLiteral('\0'))
         .assert_next(TokenType::CharLiteral('a'))
@@ -557,21 +557,21 @@ mod tests {
     }
 
     #[test]
-    fn test_minus_and_arrow() {
+    fn minus_and_arrow() {
         input(Stream::from_str("- ->"))
         .assert_next(TokenType::Minus)
         .assert_next(TokenType::Arrow);
     }
 
     #[test]
-    fn test_equals_and_double_equals() {
+    fn equals_and_double_equals() {
         input(Stream::from_str("= =="))
         .assert_next(TokenType::Equals)
         .assert_next(TokenType::DoubleEquals);
     }
 
     #[test]
-    fn test_other_tokens() {
+    fn other_tokens() {
         input(Stream::from_str("() [] > < , + / * ^ ! ~"))
         .assert_next(TokenType::BracketOpen).assert_next(TokenType::BracketClose)
         .assert_next(TokenType::BracketSquareOpen).assert_next(TokenType::BracketSquareClose)
@@ -587,7 +587,7 @@ mod tests {
     }
     
     #[test]
-    fn test_lexing_errors() {
+    fn lexing_errors() {
         input(Stream::from_str("10.a 10."))
         .assert_unexpected_char_next('a')
         .assert_next(TokenType::Identifier("a".to_string()))

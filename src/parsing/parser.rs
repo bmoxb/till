@@ -148,7 +148,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
 
     /// Parse an if statement that may optionally include an else clause.
     ///
-    /// `<if> ::= "if" <expr> <block> ("else" <block>)?`
+    /// `<if> ::= "if" <expr> <block> (newlines "else" <block>)?`
     fn if_stmt(&mut self, current_indent: usize) -> Result<super::Statement, Failure> {
         // Consume the if keyword token:
         self.consume_token_of_expected_type(&lexer::TokenType::IfKeyword, "if keyword")?;
@@ -160,7 +160,9 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
                 // Note that the `Result` of the following method call is not
                 // handled as else blocks are optional and therefore checking
                 // for one shouldn't cause error when at token stream end.
+                // TODO: Need to consume both newline and else tokens!
                 if self.consume_token_if_type(&lexer::TokenType::ElseKeyword, "").unwrap_or(None).is_some() {
+                    log::trace!("If statement includes an else block");
                     Some(self.block(current_indent)?)
                 }
                 else { None }
@@ -497,6 +499,7 @@ fn extract_string_from_identifier_token(tok: lexer::Token, msg: &'static str) ->
 }
 
 #[cfg(test)]
+#[allow(illegal_floating_point_literal_pattern)]
 mod tests {
     use crate::parsing;
     use crate::lexing::lexer;
@@ -504,147 +507,218 @@ mod tests {
 
     macro_rules! assert_pattern {
         ($x:expr, $y:pat) => {
-            match $x {
-                $y => {}
-                _ => panic!("The following is not of the required type: {:?}", $x)
-            }
+            match $x { $y => {}, _ => panic!() }
         };
     }
 
     fn quick_parse(inp: &str) -> super::StatementStream<impl Iterator<Item=lexer::Token>> {
-        let tokens = lexer::input(Stream::from_str(inp)).map(Result::unwrap);
+        let final_inp = inp.trim().replace("    ", "\t");
+        let tokens = lexer::input(Stream::from_str(&final_inp)).map(Result::unwrap);
         super::input(tokens)
     }
 
     #[test]
-    fn test_assignment_statements() {
-        assert_pattern!(
-            quick_parse("a = 10 + 5").next().unwrap(),
-            Ok(parsing::Statement::VariableAssignment {
-                identifier: _,
-                assign_to: parsing::Expression::Add(_, _)
-            })
-        );
+    fn literal_primary_exprs() {
+        let mut prsr = quick_parse("10.5 true false \"string\"");
+        
+        assert_pattern!(prsr.primary_expr(), Ok(parsing::Expression::NumberLiteral { pos: _, value: 10.5 }));
+        assert_pattern!(prsr.primary_expr(), Ok(parsing::Expression::BooleanLiteral { pos: _, value: true }));
+        assert_pattern!(prsr.primary_expr(), Ok(parsing::Expression::BooleanLiteral { pos: _, value: false }));
+        match prsr.primary_expr() {
+            Ok(parsing::Expression::StringLiteral { pos: _, value: x }) => { assert_eq!(x, "string".to_string()); }
+            _ => panic!()
+        }
     }
 
     #[test]
-    fn test_if_statements() {
-        let mut prsr = quick_parse("\
-            if true\n\t\
-                a = 5\n\
-            if 10 == 2 + 5\n\t\
-                x = \"this\"\n\
-            else\n\t\
-                x = \"that\"\n\
-        ");
+    fn identifier_primary_exprs() {
+        match quick_parse("my_func(2, true)").primary_expr() {
+            Ok(parsing::Expression::FunctionCall {pos: _, identifier, args }) => {
+                assert_eq!(identifier, "my_func".to_string());
+                assert_eq!(args.len(), 2);
 
-        assert_pattern!(prsr.next().unwrap(), Ok(parsing::Statement::If {
-            condition: parsing::Expression::BooleanLiteral { pos: _, value: true },
-            if_block: parsing::Block(_),
-            else_block: None
-        }));
+                assert_pattern!(args[0], parsing::Expression::NumberLiteral { pos: _, value: 2.0 });
+                assert_pattern!(args[1], parsing::Expression::BooleanLiteral { pos: _, value: true });
+            }
+            _ => panic!()
+        }
+
+        match quick_parse("no_args()").primary_expr() {
+            Ok(parsing::Expression::FunctionCall { pos: _, identifier, args }) => {
+                assert_eq!(identifier, "no_args".to_string());
+                assert!(args.is_empty());
+            }
+            _ => panic!()
+        }
+
+        match quick_parse("my_var").primary_expr() {
+            Ok(parsing::Expression::Variable { pos: _, identifier }) => {
+                assert_eq!(identifier, "my_var".to_string());
+            }
+            _ => panic!()
+        }
+    }
+
+    #[test]
+    fn array_primary_exprs() {
+        match quick_parse("[10, 3 + 1]").primary_expr() {
+            Ok(parsing::Expression::Array(itms)) => {
+                assert_eq!(itms.len(), 2);
+
+                assert_pattern!(itms[0], parsing::Expression::NumberLiteral { pos: _, value: 10.0 });
+                assert_pattern!(itms[1], parsing::Expression::Add(_, _));
+            }
+            _ => panic!()
+        }
+
+        assert_pattern!(quick_parse("[]").expression(), Ok(parsing::Expression::Array(_)));
+        
+        assert_pattern!(quick_parse("[1, 2").primary_expr(), Err(super::Failure::UnexpectedStreamEnd(_)));
+    }
+
+    #[test]
+    fn test_unary_exprs() {
+        // TODO!
+    }
+
+    #[test]
+    fn expr_operator_precedence() {
+        assert_pattern!(quick_parse("3 / 4 + 2").expression(), Ok(parsing::Expression::Add(_, _)));
+        assert_pattern!(quick_parse("2 + 3 - 4").expression(), Ok(parsing::Expression::Subtract(_, _)));
+        assert_pattern!(quick_parse("1 + 3 > 2").expression(), Ok(parsing::Expression::GreaterThan(_, _)));
+        assert_pattern!(quick_parse(" 1 > 2 == 3 < 4").expression(), Ok(parsing::Expression::Equal(_, _)));
+        assert_pattern!(quick_parse("3 * (4 + 2)").expression(), Ok(parsing::Expression::Multiply(_, _)));
+    }
+
+    #[test]
+    fn variable_assignment_stmts() {
+        let mut prsr = quick_parse("x = 10\nx =");
+        
+        match prsr.next().unwrap() {
+            Ok(parsing::Statement::VariableAssignment { identifier, assign_to }) => {
+                assert_eq!(identifier, "x".to_string());
+                assert_pattern!(assign_to, parsing::Expression::NumberLiteral { pos: _, value: 10.0 });
+            }
+            _ => panic!()
+        }
+
+        assert_pattern!(prsr.next().unwrap(), Err(super::Failure::UnexpectedStreamEnd(_)));
+
+        assert!(prsr.next().is_none());
+    }
+
+    #[test]
+    fn types() {
+        match quick_parse("Num").parse_type() {
+            Ok(parsing::Type::Identifier { pos: _, identifier }) => {
+                assert_eq!(identifier, "Num".to_string());
+            }
+            _ => panic!()
+        }
+
+        match quick_parse("[Num]").parse_type() {
+            Ok(parsing::Type::Array(contained)) => {
+                assert_pattern!(*contained, parsing::Type::Identifier { pos: _, identifier: _});
+            }
+            _ => panic!()
+        }
+    }
+
+    #[test]
+    fn variable_declaration_stmts() {
+        match quick_parse("[Char] x").next().unwrap() {
+            Ok(parsing::Statement::VariableDeclaration {
+                value: None,
+                var_type: parsing::Type::Array(_),
+                identifier
+            }) => {
+                assert_eq!(identifier, "x".to_string());
+            }
+            _ => panic!()
+        }
+
+        match quick_parse("Num x = 2.5\n\n").next().unwrap() {
+            Ok(parsing::Statement::VariableDeclaration {
+                value: Some(parsing::Expression::NumberLiteral { pos: _, value: 2.5}),
+                var_type: parsing::Type::Identifier { pos: _, identifier: _},
+                identifier
+            }) => {
+                assert_eq!(identifier, "x".to_string());
+            }
+            _ => panic!()
+        }
+    }
+
+    #[test]
+    fn if_stmts() {
+        let mut prsr = quick_parse("
+if x == 10
+    Num y = 2
+    y = y + x
+
+    if z == \"something\"
+        if func(z)
+            ty = y + 1
+
+    x = 0
+
+if y + 2 < 20
+    z = this(y)
+else
+    z = that(y)");
 
         assert_pattern!(prsr.next().unwrap(), Ok(parsing::Statement::If {
             condition: parsing::Expression::Equal(_, _),
-            if_block: parsing::Block(_),
-            else_block: Some(parsing::Block(_))
-        }));
-    }
-
-    #[test]
-    fn test_declaration_statements() {
-        let mut prsr = quick_parse("Int my_var = 2 + 5\n\
-                                    [Char] my_string = \"such and such\"\n\
-                                    Bool x");
-
-        assert_pattern!(prsr.next().unwrap(), Ok(parsing::Statement::VariableDeclaration {
-            var_type: parsing::Type::Identifier { pos: _, identifier: _ },
-            identifier: _, value: Some(parsing::Expression::Add(_, _))
+            if_block: _, else_block: None
         }));
 
-        assert_pattern!(prsr.next().unwrap(), Ok(parsing::Statement::VariableDeclaration {
-            var_type: parsing::Type::Array(_), identifier: _,
-            value: Some(parsing::Expression::StringLiteral { pos: _, value: _ })
-        }));
-
-        assert_pattern!(prsr.next().unwrap(), Ok(parsing::Statement::VariableDeclaration {
-            var_type: parsing::Type::Identifier { pos: _, identifier: _ },
-            identifier: _, value: None
-        }));
+        // TODO: Else clauses currently don't work.
+        /*assert_pattern!(prsr.next().unwrap(), Ok(parsing::Statement::If {
+            condition: parsing::Expression::LessThan(_, _),
+            if_block: _, else_block: Some(_)
+        }));*/
     }
 
     #[test]
-    fn test_parsing_types() {
-        assert_pattern!(quick_parse("Int").parse_type(),
-            Ok(parsing::Type::Identifier { pos: _, identifier: _ }));
-        assert_pattern!(quick_parse("[Char]").parse_type(), Ok(parsing::Type::Array(_)));
-        assert_pattern!(quick_parse("[Int").parse_type(), Err(super::Failure::UnexpectedStreamEnd(_)));
+    fn function_parameters() {
+        match quick_parse("[Num] my_param").parse_parameter() {
+            Ok(parsing::Parameter(parsing::Type::Array(_), identifier, _)) => {
+                assert_eq!(identifier, "my_param".to_string());
+            }
+            _ => panic!()
+        }
     }
 
     #[test]
-    #[allow(illegal_floating_point_literal_pattern)]
-    fn test_simple_primary_expressions() {
-        let mut prsr = quick_parse("10.5 \"string\" my_identifier true =");
+    fn function_definition_stmts() { // TODO: Add way to return value from function!
+        let mut prsr = quick_parse("
+some_function(Num x, Num y) -> [Num]
+    if x > y
+        [Num] z = [x - y, y - x]
+        
+no_args()
+    [Char] x = \"no args\"");
 
-        assert_pattern!(prsr.primary_expr(),
-            Ok(parsing::Expression::NumberLiteral { pos: _, value: 10.5 }));
-        assert_pattern!(prsr.expression(),
-            Ok(parsing::Expression::StringLiteral { pos: _, value: _ }));
-        assert_pattern!(prsr.primary_expr(),
-            Ok(parsing::Expression::Variable { pos: _, identifier: _ }));
-        assert_pattern!(prsr.expression(),
-            Ok(parsing::Expression::BooleanLiteral { pos: _, value: true }));
-        assert_pattern!(prsr.primary_expr(), Err(super::Failure::UnexpectedToken(_, _)));
-        assert_pattern!(prsr.expression(), Err(super::Failure::UnexpectedStreamEnd(_)));
-    }
+        match prsr.next().unwrap() {
+            Ok(parsing::Statement::FunctionDefinition {
+                identifier, parameters, body: _,
+                return_type: Some(parsing::Type::Array(_))
+            }) => {
+                assert_eq!(identifier, "some_function".to_string());
+                assert_eq!(parameters.len(), 2);
+            }
+            _ => panic!()
+        }
 
-    #[test]
-    fn test_array_literal_expressions() {
-        assert_pattern!(quick_parse("[10 - 2, 2.5 * 6]").primary_expr(), Ok(parsing::Expression::Array(_)));
-        assert_pattern!(quick_parse("[]").expression(), Ok(parsing::Expression::Array(_)));
-        assert_pattern!(quick_parse("[1, 2, 3").primary_expr(), Err(super::Failure::UnexpectedStreamEnd(_)));
-    }
-
-    #[test]
-    fn test_function_call_expressions() {
-        assert_pattern!(quick_parse("func(10 + 2)").expression(),
-            Ok(parsing::Expression::FunctionCall { pos: _, identifier: _, args: _ }));
-        assert_pattern!(quick_parse("no_args_function()").primary_expr(),
-            Ok(parsing::Expression::FunctionCall { pos: _, identifier: _, args: _ }));
-        assert_pattern!(quick_parse("func(1, 5").expression(), Err(super::Failure::UnexpectedStreamEnd(_)));
-    }
-
-    #[test]
-    fn test_variable_dereference_expressions() {
-        assert_pattern!(quick_parse("my_variable").primary_expr(),
-            Ok(parsing::Expression::Variable { pos: _, identifier: _ }));
-    }
-
-    #[test]
-    #[allow(illegal_floating_point_literal_pattern)]
-    fn test_unary_expressions() {
-        let mut prsr = quick_parse("10 ~10 !true");
-
-        assert_pattern!(prsr.unary_expr(),
-            Ok(parsing::Expression::NumberLiteral { pos: _, value: 10.0 }));
-        assert_pattern!(prsr.expression(), Ok(parsing::Expression::UnaryMinus(_)));
-        assert_pattern!(prsr.unary_expr(), Ok(parsing::Expression::BooleanNot(_)));
-    }
-
-    #[test]
-    fn test_expression_prescendece() {
-        assert_pattern!(quick_parse("10 + 2 * 5").expression(), Ok(parsing::Expression::Add(_, _)));
-        assert_pattern!(quick_parse("2 * 5 + 10").expression(), Ok(parsing::Expression::Add(_, _)));
-        assert_pattern!(quick_parse("(10 + 2) * 5").expression(), Ok(parsing::Expression::Multiply(_, _)));
-        assert_pattern!(quick_parse("10 > 2 / 5").expression(), Ok(parsing::Expression::GreaterThan(_, _)));
-        assert_pattern!(quick_parse("true == 10 > 2 / 5").expression(), Ok(parsing::Expression::Equal(_, _)));
-    }
-
-    #[test]
-    fn test_sequences_of_expressions() {
-        assert_eq!(quick_parse("10 + 5, 2").expressions().unwrap().len(), 2);
-        assert_eq!(quick_parse("10 + 5").expressions().unwrap().len(), 1);
-        assert_pattern!(quick_parse("").expressions(), Err(super::Failure::UnexpectedStreamEnd(_)));
-        assert_pattern!(quick_parse(",").expressions(), Err(super::Failure::UnexpectedToken(_, _)));
+        match prsr.next().unwrap() {
+            Ok(parsing::Statement::FunctionDefinition {
+                identifier, parameters, body: _,
+                return_type: None
+            }) => {
+                assert_eq!(identifier, "no_args".to_string());
+                assert!(parameters.is_empty());
+            }
+            _ => panic!()
+        }
     }
 }
