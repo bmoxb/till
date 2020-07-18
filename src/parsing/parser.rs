@@ -284,7 +284,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     /// Parse a chunk (a collection of one or more sequential statements at a
     /// given indentation level).
     ///
-    /// `<chunk> ::= (<stmt> newlines)*`
+    /// `<chunk> ::= (<stmt> newlines)* <stmt>`
     fn block_stmts(&mut self, block_indent: usize) -> Result<Vec<super::Statement>, Failure> {
         let mut stmts = Vec::new();
 
@@ -298,10 +298,10 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
                 Ok(lexer::Token { tok_type: lexer::TokenType::Newline(indent), lexeme: _ }) => {
                     if *indent == block_indent {
                         log::trace!("Next statement in block at same indentation level of {}", indent);
+                        let _ = self.consume_token(""); // Only consume token if block continues.
                     }
                     else if *indent < block_indent {
                         log::trace!("Block ending as indent decreased to {}", indent);
-                        let _ = self.consume_token(""); // Consume the newline token.
                         break;
                     }
                     else {
