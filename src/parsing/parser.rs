@@ -578,7 +578,19 @@ mod tests {
 
     #[test]
     fn test_unary_exprs() {
-        // TODO!
+        match quick_parse("~10").unary_expr() {
+            Ok(parsing::Expression::UnaryMinus(expr)) => {
+                assert_pattern!(*expr, parsing::Expression::NumberLiteral { pos: _, value: 10.0 });
+            }
+            _ => panic!()
+        }
+
+        match quick_parse("!some_bool").unary_expr() {
+            Ok(parsing::Expression::BooleanNot(expr)) => {
+                assert_pattern!(*expr, parsing::Expression::Variable { pos: _, identifier: _ });
+            }
+            _ => panic!()
+        }
     }
 
     #[test]
