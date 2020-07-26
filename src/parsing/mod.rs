@@ -61,6 +61,7 @@ pub enum Expression {
 
     NumberLiteral { pos: stream::Position, value: f64 },
     StringLiteral { pos: stream::Position, value: String },
+    CharLiteral { pos: stream::Position, value: char },
     BooleanLiteral { pos: stream::Position, value: bool },
     Variable { pos: stream::Position, identifier: String },
     FunctionCall { pos: stream::Position, identifier: String, args: Vec<Expression> }

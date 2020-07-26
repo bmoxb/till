@@ -483,6 +483,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
 
             lexer::TokenType::NumberLiteral(value) => Ok(super::Expression::NumberLiteral { value, pos: tok.lexeme.pos }),
             lexer::TokenType::StringLiteral(value) => Ok(super::Expression::StringLiteral { value, pos: tok.lexeme.pos }),
+            lexer::TokenType::CharLiteral(value) => Ok(super::Expression::CharLiteral { value, pos: tok.lexeme.pos }),
             lexer::TokenType::TrueKeyword => Ok(super::Expression::BooleanLiteral { value: true, pos: tok.lexeme.pos }),
             lexer::TokenType::FalseKeyword => Ok(super::Expression::BooleanLiteral { value: false, pos: tok.lexeme.pos }),
 
@@ -532,13 +533,17 @@ mod tests {
 
     #[test]
     fn literal_primary_exprs() {
-        let mut prsr = quick_parse("10.5 true false \"string\"");
+        let mut prsr = quick_parse("10.5 true false \"string\" '日'");
         
         assert_pattern!(prsr.primary_expr(), Ok(parsing::Expression::NumberLiteral { pos: _, value: 10.5 }));
         assert_pattern!(prsr.primary_expr(), Ok(parsing::Expression::BooleanLiteral { pos: _, value: true }));
         assert_pattern!(prsr.primary_expr(), Ok(parsing::Expression::BooleanLiteral { pos: _, value: false }));
         match prsr.primary_expr() {
             Ok(parsing::Expression::StringLiteral { pos: _, value: x }) => { assert_eq!(x, "string".to_string()); }
+            _ => panic!()
+        }
+        match prsr.primary_expr() {
+            Ok(parsing::Expression::CharLiteral { pos: _, value: x }) => { assert_eq!(x, '日'); }
             _ => panic!()
         }
     }
