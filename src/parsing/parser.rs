@@ -121,7 +121,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
 
     /// Parse a TILL statement.
     ///
-    /// `<stmt> ::= <if> | <function> | <declaration> | <assignment>`
+    /// `<stmt> ::= <if> | <while> | <function> | <declaration> | <assignment>`
     fn statement(&mut self, current_indent: usize, stmt_type_name: &'static str) -> Result<super::Statement, Failure> {
         log::trace!("Parsing statement...");
 
@@ -246,6 +246,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
         })
     }
 
+    /// `<type> ::= typeidentifier | "[" <type> "]"`
     fn parse_type(&mut self) -> Result<super::Type, Failure> {
         let tok = self.consume_token("type")?;
         
@@ -267,6 +268,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
         }
     }
 
+    /// `<param> ::= <type> identifier`
     fn parse_parameter(&mut self) -> Result<super::Parameter, Failure> {
         let param_type = self.parse_type()?;
         
@@ -282,7 +284,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     /// start at an identation level one higher than the previous indentation
     /// level).
     ///
-    /// `<block> ::= newlines indentincr <chunk> indentdecr newlines?`
+    /// `<block> ::= newlines indentincr <chunk> indentdecr`
     fn block(&mut self, indent_before_block: usize) -> Result<super::Block, Failure> {
         let block_indent = indent_before_block + 1;
         
@@ -362,7 +364,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     /// Parse a TILL expression. Will return Failure should the token stream be
     /// at its end or if an expected token is encountered.
     ///
-    /// `<expr> ::= <comparison> (("!="|"==") <comparison>)*`
+    /// `<expr> ::= <comparison> ("==" <comparison>)*`
     fn expression(&mut self) -> Result<super::Expression, Failure> {
         log::trace!("Parsing expression...");
 

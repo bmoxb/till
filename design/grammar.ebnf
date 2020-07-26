@@ -1,14 +1,16 @@
 (* Groupings *)
 
-<chunk> ::= (<stmt> newlines)+
+<chunk> ::= (<stmt> newlines)* <stmt>
 
 <block> ::= newlines indentincr <chunk> indentdecr
 
 (* Statements *)
 
-<stmt> ::= <if> | <function> | <declaration> | <assignment>
+<stmt> ::= <if> | <while> | <function> | <declaration> | <assignment>
 
-<if> ::= "if" <expr> <block> ("else" <block>)?
+<if> ::= "if" <expr> <block>
+
+<while> ::= "while" <expr> <block>
 
 <function> ::= identifier "(" (<param> ("," <param>)*)? ")" ("->" <type>)? <block>
 
@@ -22,7 +24,7 @@
 
 (* Expressions *)
 
-<expr> ::= <comparison> (("!="|"==") <comparison>)*
+<expr> ::= <comparison> ("==" <comparison>)*
 
 <comparison> ::= <addition> (("<"|">") <addition>)*
 
@@ -33,6 +35,7 @@
 <unary> ::= ("!"|"~") <unary> | <primary>
 
 <primary> ::= number | string | character | "true" | "false"
-            | "[" (<expr> ("," <expr>)*)? "]"
-            | "(" <expr> ")"
-            | identifier
+            | "[" <exprs>? "]" | "(" <expr> ")"
+            | identifier ("(" <exprs>? ")")?
+
+<exprs> ::= <expr> ("," <expr>)*
