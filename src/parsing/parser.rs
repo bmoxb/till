@@ -38,18 +38,24 @@ impl<T: Iterator<Item=lexer::Token>> Iterator for StatementStream<T> {
     /// Return the next AST statement parsed from the given token stream.
     /// Returns None in the case of the token stream having reached its end.
     fn next(&mut self) -> Option<Self::Item> {
+        log::info!("Attempting to parse next statement from token stream...");
+
         if self.more_tokens_in_stream() {
             let stmt = self.statement(0, "top-level statement");
-
-            if let Ok(valid_stmt) = &stmt {
-                log::info!("Parsed next statement from token stream:\n{:#?}", valid_stmt);
+            
+            match &stmt {
+                Ok(valid_stmt) => log::info!("Parsed next statement from token stream:\n{:#?}", valid_stmt),
+                Err(e) => log::info!("Failed to parse next statement from token stream due to error: {}", e)
             }
 
             let _ = self.consume_token_if_type(&lexer::TokenType::Newline(0), "top-level statement");
 
             Some(stmt)
         }
-        else { None }
+        else {
+            log::info!("Token stream is already empty so returning None");
+            None
+        }
     }
 }
 
@@ -148,25 +154,14 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
 
     /// Parse an if statement that may optionally include an else clause.
     ///
-    /// `<if> ::= "if" <expr> <block> (newlines "else" <block>)?`
+    /// `<if> ::= "if" <expr> <block>`
     fn if_stmt(&mut self, current_indent: usize) -> Result<super::Statement, Failure> {
         // Consume the if keyword token:
         self.consume_token_of_expected_type(&lexer::TokenType::IfKeyword, "if keyword")?;
 
         Ok(super::Statement::If {
             condition: self.expression()?,
-            if_block: self.block(current_indent)?,
-            else_block: {
-                // Note that the `Result` of the following method call is not
-                // handled as else blocks are optional and therefore checking
-                // for one shouldn't cause error when at token stream end.
-                // TODO: Need to consume both newline and else tokens!
-                if self.consume_token_if_type(&lexer::TokenType::ElseKeyword, "").unwrap_or(None).is_some() {
-                    log::trace!("If statement includes an else block");
-                    Some(self.block(current_indent)?)
-                }
-                else { None }
-            }
+            if_block: self.block(current_indent)?
         })
     }
 
@@ -304,6 +299,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
                     }
                     else if *indent < block_indent {
                         log::trace!("Block ending as indent decreased to {}", indent);
+                        // Do not consume final newline token after block ends.
                         break;
                     }
                     else {
@@ -663,6 +659,7 @@ mod tests {
 
     #[test]
     fn if_stmts() {
+        pretty_env_logger::init_timed();
         let mut prsr = quick_parse("
 if x == 10
     Num y = 2
@@ -672,23 +669,11 @@ if x == 10
         if func(z)
             ty = y + 1
 
-    x = 0
-
-if y + 2 < 20
-    z = this(y)
-else
-    z = that(y)");
+    x = 0");
 
         assert_pattern!(prsr.next().unwrap(), Ok(parsing::Statement::If {
-            condition: parsing::Expression::Equal(_, _),
-            if_block: _, else_block: None
+            condition: parsing::Expression::Equal(_, _), if_block: _,
         }));
-
-        // TODO: Else clauses currently don't work.
-        /*assert_pattern!(prsr.next().unwrap(), Ok(parsing::Statement::If {
-            condition: parsing::Expression::LessThan(_, _),
-            if_block: _, else_block: Some(_)
-        }));*/
     }
 
     #[test]

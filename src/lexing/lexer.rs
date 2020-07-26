@@ -14,7 +14,7 @@ impl fmt::Display for Token {
             TokenType::StringLiteral(_) |
             TokenType::CharLiteral(_) => "literal",
             TokenType::IfKeyword |
-            TokenType::ElseKeyword |
+            TokenType::WhileKeyword |
             TokenType::TrueKeyword |
             TokenType::FalseKeyword => "keyword",
             _ => "token"
@@ -39,7 +39,6 @@ pub enum TokenType {
     CharLiteral(char),
 
     IfKeyword, // if
-    ElseKeyword, // else
     WhileKeyword, // while
     TrueKeyword, // true
     FalseKeyword, // false
@@ -190,7 +189,6 @@ lazy_static::lazy_static! {
                 parse: super::Parse::ByFunction(&|lexeme| {
                     match lexeme {
                         "if" => TokenType::IfKeyword,
-                        "else" => TokenType::ElseKeyword,
                         "while" => TokenType::WhileKeyword,
                         "true" => TokenType::TrueKeyword,
                         "false" => TokenType::FalseKeyword,
@@ -513,9 +511,8 @@ mod tests {
 
     #[test]
     fn keywords() {
-        input(Stream::from_str("if else  while  true false"))
+        input(Stream::from_str("if  while  true false"))
         .assert_next(TokenType::IfKeyword)
-        .assert_next(TokenType::ElseKeyword)
         .assert_next(TokenType::WhileKeyword)
         .assert_next(TokenType::TrueKeyword)
         .assert_next(TokenType::FalseKeyword);
