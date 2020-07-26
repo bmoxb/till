@@ -130,10 +130,13 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
             // If statement:
             lexer::TokenType::IfKeyword => self.if_stmt(current_indent),
 
+            // While loop statement:
+            lexer::TokenType::WhileKeyword => self.while_stmt(current_indent),
+
             // Function definition or variable assignment:
             lexer::TokenType::Identifier(x) => {
                 let identifier = x.to_string();
-                self.consume_token("statement")?;
+                let _ = self.consume_token(""); // Consume identifier token.
 
                 if self.check_type_of_peeked_token(&lexer::TokenType::BracketOpen, "statement")? {
                     self.define_function_stmt(current_indent, identifier)
@@ -152,7 +155,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
         }
     }
 
-    /// Parse an if statement that may optionally include an else clause.
+    /// Parse an if statement.
     ///
     /// `<if> ::= "if" <expr> <block>`
     fn if_stmt(&mut self, current_indent: usize) -> Result<super::Statement, Failure> {
@@ -161,7 +164,19 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
 
         Ok(super::Statement::If {
             condition: self.expression()?,
-            if_block: self.block(current_indent)?
+            block: self.block(current_indent)?
+        })
+    }
+
+    /// Parse a while loop statement.
+    ///
+    /// `<while> ::= "while" <expr> <block>`
+    fn while_stmt(&mut self, current_indent: usize) -> Result<super::Statement, Failure> {
+        self.consume_token_of_expected_type(&lexer::TokenType::WhileKeyword, "while keyword")?;
+
+        Ok(super::Statement::While {
+            condition: self.expression()?,
+            block: self.block(current_indent)?
         })
     }
 
@@ -659,7 +674,6 @@ mod tests {
 
     #[test]
     fn if_stmts() {
-        pretty_env_logger::init_timed();
         let mut prsr = quick_parse("
 if x == 10
     Num y = 2
@@ -672,8 +686,17 @@ if x == 10
     x = 0");
 
         assert_pattern!(prsr.next().unwrap(), Ok(parsing::Statement::If {
-            condition: parsing::Expression::Equal(_, _), if_block: _,
+            condition: parsing::Expression::Equal(_, _), block: _
         }));
+    }
+
+    #[test]
+    fn while_stmts() {
+        let mut prsr = quick_parse("while x < 10\n\tx = x + func(2)\n") ;
+
+        assert_pattern!(prsr.next().unwrap(), Ok(parsing::Statement::While {
+            condition: parsing::Expression::LessThan(_, _), block: _
+        }))
     }
 
     #[test]

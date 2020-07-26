@@ -6,7 +6,12 @@ use crate::stream;
 pub enum Statement {
     If {
         condition: Expression,
-        if_block: Block
+        block: Block
+    },
+
+    While {
+        condition: Expression,
+        block: Block
     },
 
     FunctionDefinition {
