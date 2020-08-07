@@ -1,6 +1,7 @@
 mod stream;
 mod lexing;
 mod parsing;
+mod checking;
 
 use std::{ env, fs, io, io::BufRead, io::Write, path::Path };
 
