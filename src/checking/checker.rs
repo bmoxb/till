@@ -1,10 +1,14 @@
 use crate::parsing;
 use std::fmt;
 
-pub fn input<T: Iterator<Item=parsing::Statement>>(stmts: T) {}
+pub fn input<T: Iterator<Item=parsing::Statement>>(stmts: T) -> Checker<T> {
+    let mut checker = Checker { stmts: stmts, scope_stack: Vec::new() };
+    checker.begin_new_scope();
+    checker
+}
 
 #[derive(Debug)]
-pub enum Failure {
+pub enum Failure { // TODO: Show stream position in error messages.
     VariableNotInScope(String),
     TypeMismatch { expected: super::Type, encountered: super::Type }
 }
@@ -12,7 +16,8 @@ pub enum Failure {
 impl fmt::Display for Failure {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Failure::VariableNotInScope(identifier) => write!(f, "Reference made to variable with identifier `{}` which is either undefined and inaccessible from the current scope", identifier)
+            Failure::VariableNotInScope(identifier) => write!(f, "Reference made to variable with identifier `{}` which is either undefined and inaccessible from the current scope", identifier),
+            Failure::TypeMismatch { expected, encountered } => write!(f, "Type mismatch encountered - expected type {} yet enountered {}", expected, encountered)
         }
     }
 }
@@ -22,23 +27,36 @@ pub struct Checker<T: Iterator<Item=parsing::Statement>> {
     scope_stack: Vec<Scope>
 }
 
-impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
-    /// Check the validity of the program (in terms of type checking, scoping
-    /// rules, etc.) and return a final immediate representation of the program
-    /// should it be found to indeed be semantically valid.
-    pub fn check_and_build_final_ir(&mut self) -> Result<(), Failure> {
-        self.begin_new_scope();
+impl<T: Iterator<Item=parsing::Statement>> Iterator for Checker<T> {
+    type Item = Result<parsing::Statement, Failure>;
 
-        for stmt in &mut self.stmts {
-            match stmt {
-                parsing::Statement::If { condition, block } => {
-                    self.expect_expr_type(&condition, super::Type::Simple(super::SimpleType::Bool))?;
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.stmts.next() {
+            Some(stmt) => {
+                match self.check_stmt(&stmt) {
+                    Err(e) => Some(Err(e)),
+                    Ok(_) => Some(Ok(stmt))
                 }
             }
+
+            None => {
+                log::trace!("Reached end of statement stream - ending program scope");
+                self.end_scope();
+                None
+            }
         }
+    }
+}
 
-        self.end_scope();
-
+impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
+    fn check_stmt(&mut self, stmt: &parsing::Statement) -> Result<(), Failure> {
+        match stmt {
+            parsing::Statement::If { condition, block } => {
+                self.expect_expr_type(condition, super::Type::Simple(super::SimpleType::Bool))?;
+                // handle block...
+            }
+            _ => unimplemented!()
+        }
         Ok(()) // TODO: temp
     }
 
