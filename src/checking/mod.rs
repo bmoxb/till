@@ -4,7 +4,7 @@ use std::fmt;
 pub struct FinalIR { /* ... */ }
 
 #[derive(Debug, PartialEq)]
-enum Type {
+pub enum Type {
     Simple(SimpleType),
     Array(Box<Type>)
 }
@@ -19,4 +19,4 @@ impl fmt::Display for Type {
 }
 
 #[derive(Debug, PartialEq)]
-enum SimpleType { Char, Num, Bool }
+pub enum SimpleType { Char, Num, Bool }

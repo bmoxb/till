@@ -1,13 +1,11 @@
 use crate::parsing;
 use std::fmt;
 
-pub fn input<T: Iterator<Item=parsing::Statement>>(stmts: T) -> Checker<T> {
-    let mut checker = Checker { stmts: stmts, scope_stack: Vec::new() };
-    checker.begin_new_scope();
-    checker
+pub fn input<T: Iterator<Item=parsing::Statement>>(stmts: T) -> Vec<Result<parsing::Statement, Failure>> {
+    Checker::new(stmts).collect() // Collected so that checking happens immediately.
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Failure { // TODO: Show stream position in error messages.
     VariableNotInScope(String),
     TypeMismatch { expected: super::Type, encountered: super::Type }
@@ -42,6 +40,7 @@ impl<T: Iterator<Item=parsing::Statement>> Iterator for Checker<T> {
             None => {
                 log::trace!("Reached end of statement stream - ending program scope");
                 self.end_scope();
+                assert!(self.scope_stack.is_empty());
                 None
             }
         }
@@ -49,15 +48,34 @@ impl<T: Iterator<Item=parsing::Statement>> Iterator for Checker<T> {
 }
 
 impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
+    fn new(stmts: T) -> Checker<T> {
+        let mut this = Checker { stmts: stmts, scope_stack: Vec::new() };
+        this.begin_new_scope();
+        this
+    }
+
     fn check_stmt(&mut self, stmt: &parsing::Statement) -> Result<(), Failure> {
         match stmt {
-            parsing::Statement::If { condition, block } => {
+            parsing::Statement::If { condition, block } |
+            parsing::Statement::While { condition, block } => {
                 self.expect_expr_type(condition, super::Type::Simple(super::SimpleType::Bool))?;
-                // handle block...
+                self.check_block(block)?; // The return type of the block is irrelevant.
+                Ok(())
             }
             _ => unimplemented!()
         }
-        Ok(()) // TODO: temp
+    }
+
+    /// Iterate over the statements contained in a block, checking each. Should
+    /// a return statement be encountered, the type of the returned expression
+    /// is returned within `Ok(Some(...))`. If there are multiple return statements,
+    /// then it will be ensured that they are all returning the same type.
+    fn check_block(&mut self, block: &parsing::Block) -> Result<Option<super::Type>, Failure> {
+        self.begin_new_scope();
+        for stmt in block { self.check_stmt(stmt)? }
+        self.end_scope();
+
+        Ok(None) // TODO: temp
     }
 
     fn begin_new_scope(&mut self) {
@@ -77,7 +95,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         Err(Failure::VariableNotInScope(identifier.to_string())) // TODO: temp
     }
 
-    fn identify_expr_type(&self, expr: &parsing::Expression) -> Result<super::Type, Failure> {
+    fn check_expr(&self, expr: &parsing::Expression) -> Result<super::Type, Failure> {
         match expr {
             parsing::Expression::Add(left, right) |
             parsing::Expression::Subtract(left, right) |
@@ -94,8 +112,8 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
             parsing::Expression::Equal(left, right) => {
                 log::trace!("Verifying types of equality expression (types on both sides of the operator should be the same)");
 
-                let left_type = self.identify_expr_type(left)?;
-                let right_type = self.identify_expr_type(right)?;
+                let left_type = self.check_expr(left)?;
+                let right_type = self.check_expr(right)?;
 
                 if left_type == right_type { Ok(left_type) }
                 else {
@@ -106,12 +124,16 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                 }
             }
 
+            parsing::Expression::NumberLiteral {pos: _, value: _ } => Ok(super::Type::Simple(super::SimpleType::Num)),
+            parsing::Expression::BooleanLiteral { pos: _, value: _ } => Ok(super::Type::Simple(super::SimpleType::Bool)),
+            parsing::Expression::CharLiteral { pos: _, value: _ } => Ok(super::Type::Simple(super::SimpleType::Char)),
+
             _ => unimplemented!()
         }
     }
 
     fn expect_expr_type(&self, expr: &parsing::Expression, expected: super::Type) -> Result<(), Failure> {
-        let expr_type = self.identify_expr_type(expr)?;
+        let expr_type = self.check_expr(expr)?;
         
         if expr_type == expected { Ok(()) }
         else { Err(Failure::TypeMismatch { expected, encountered: expr_type }) }
@@ -134,4 +156,29 @@ struct FunctionDef {
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use std::iter;
+    use crate::{ parsing, checking, stream::Position };
+
+    #[test]
+    fn check_exprs() {
+        let mut chkr = super::Checker::new(iter::empty());
+
+        assert_eq!(
+            chkr.check_expr(&parsing::Expression::NumberLiteral { pos: Position::new(), value: 10.5 }),
+            Ok(checking::Type::Simple(checking::SimpleType::Num))
+        );
+
+        assert_eq!(
+            chkr.check_expr(&parsing::Expression::BooleanLiteral { pos: Position::new(), value: true }),
+            Ok(checking::Type::Simple(checking::SimpleType::Bool))
+        );
+
+        assert_eq!(
+            chkr.check_expr(&parsing::Expression::CharLiteral { pos: Position::new(), value: '話' }),
+            Ok(checking::Type::Simple(checking::SimpleType::Char))
+        );
+
+        // TODO: Test more complex expressions...
+    }
+}
