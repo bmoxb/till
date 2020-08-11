@@ -115,7 +115,9 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                 let left_type = self.check_expr(left)?;
                 let right_type = self.check_expr(right)?;
 
-                if left_type == right_type { Ok(left_type) }
+                if left_type == right_type {
+                    Ok(super::Type::Simple(super::SimpleType::Bool))
+                }
                 else {
                     Err(Failure::TypeMismatch {
                         expected: left_type,
@@ -179,6 +181,25 @@ mod tests {
             Ok(checking::Type::Simple(checking::SimpleType::Char))
         );
 
-        // TODO: Test more complex expressions...
+        assert_eq!(
+            chkr.check_expr(&parsing::Expression::Equal(
+                Box::new(parsing::Expression::CharLiteral { pos: Position::new(), value: 'x' }),
+                Box::new(parsing::Expression::CharLiteral { pos: Position::new(), value: 'y' })
+            )),
+            Ok(checking::Type::Simple(checking::SimpleType::Bool))
+        );
+
+        assert_eq!(
+            chkr.check_expr(&parsing::Expression::Equal(
+                Box::new(parsing::Expression::NumberLiteral { pos: Position::new(), value: 1.5 }),
+                Box::new(parsing::Expression::BooleanLiteral { pos: Position::new(), value: false })
+            )),
+            Err(super::Failure::TypeMismatch {
+                encountered: checking::Type::Simple(checking::SimpleType::Bool),
+                expected: checking::Type::Simple(checking::SimpleType::Num)
+            })
+        );
+
+        // TODO: Test arithmetic expr checking...
     }
 }
