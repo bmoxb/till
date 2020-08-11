@@ -292,7 +292,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
         log::trace!("Start of block with indent level: {}", block_indent);
 
         let stmts = self.block_stmts(block_indent)?;
-        Ok(super::Block(stmts))
+        Ok(stmts)
     }
 
     /// Parse a chunk (a collection of one or more sequential statements at a
