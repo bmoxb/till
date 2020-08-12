@@ -8,14 +8,16 @@ pub fn input<T: Iterator<Item=parsing::Statement>>(stmts: T) -> Vec<Result<parsi
 #[derive(Debug, PartialEq)]
 pub enum Failure { // TODO: Show stream position in error messages.
     VariableNotInScope(String),
-    TypeMismatch { expected: super::Type, encountered: super::Type }
+    FunctionNotInScope(String, Vec<super::Type>),
+    UnexpectedType { expected: super::Type, encountered: super::Type }
 }
 
 impl fmt::Display for Failure {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Failure::VariableNotInScope(identifier) => write!(f, "Reference made to variable with identifier `{}` which is either undefined and inaccessible from the current scope", identifier),
-            Failure::TypeMismatch { expected, encountered } => write!(f, "Type mismatch encountered - expected type {} yet enountered {}", expected, encountered)
+            Failure::VariableNotInScope(ident) => write!(f, "Reference made to variable with identifier `{}` which is either undefined and inaccessible from the current scope", ident),
+            Failure::FunctionNotInScope(ident, params) => write!(f, "Call made to a function '{}' with parameters {:?} which is either undefinied or inaccessible from the current scope", ident, params),
+            Failure::UnexpectedType { expected, encountered } => write!(f, "Expected type {} yet enountered {}", expected, encountered)
         }
     }
 }
@@ -58,7 +60,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         match stmt {
             parsing::Statement::If { condition, block } |
             parsing::Statement::While { condition, block } => {
-                self.expect_expr_type(condition, super::Type::Simple(super::SimpleType::Bool))?;
+                self.expect_expr_type(condition, super::Type::Bool)?;
                 self.check_block(block)?; // The return type of the block is irrelevant.
                 Ok(())
             }
@@ -92,45 +94,98 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
     /// Search the current accessible scopes for the variable definition with
     /// the given identifier.
     fn variable_lookup(&self, identifier: &str) -> Result<&VariableDef, Failure> {
-        Err(Failure::VariableNotInScope(identifier.to_string())) // TODO: temp
+        Err(Failure::VariableNotInScope(identifier.to_string())) // TODO
     }
+
+    /// Introduce a new variable into the current inner most scope.
+    fn introduce_variable(&self, identifier: &str, var_type: super::Type) {} // TODO
+
+    fn function_lookup(&self, identifier: &str, parameters: &[super::Type]) -> Result<&FunctionDef, Failure> {
+        Err(Failure::FunctionNotInScope(identifier.to_string(), parameters.to_vec())) // TODO
+    }
+
+    fn introduce_function(&self, identifier: &str, parameters: &[super::Type], return_type: super::Type) {} // TODO
 
     fn check_expr(&self, expr: &parsing::Expression) -> Result<super::Type, Failure> {
         match expr {
+            parsing::Expression::Variable { pos: _, identifier } => {
+                log::trace!("Searching scope for the type of referenced variable with identifier '{}'", identifier);
+
+                let definition = self.variable_lookup(identifier)?;
+                Ok(definition.var_type.clone())
+            }
+
+            parsing::Expression::FunctionCall {pos: _, identifier, args } => {
+                log::trace!("Searching scope for the return type of referenced function '{}' given arguments {:?}", identifier, args);
+
+                let mut arg_types = Vec::new();
+                for arg in args { arg_types.push(self.check_expr(arg)?) }
+
+                let definition = self.function_lookup(identifier, arg_types.as_slice())?;
+                
+                match &definition.return_type {
+                    Some(return_type) => Ok(return_type.clone()),
+                    None => panic!() // TODO: Introduce a void type for functions that return nothing?
+                }
+            }
+
             parsing::Expression::Add(left, right) |
             parsing::Expression::Subtract(left, right) |
             parsing::Expression::Multiply(left, right) |
             parsing::Expression::Divide(left, right) => {
-                log::trace!("Verifying types of arithmetic expression (Num type on both sides of operator expected)");
+                log::trace!("Verifying types of arithmetic expression (addition, division, etc.) - Num type on both sides of operator expected");
 
-                self.expect_expr_type(left, super::Type::Simple(super::SimpleType::Num))?;
-                self.expect_expr_type(right, super::Type::Simple(super::SimpleType::Num))?;
+                self.expect_expr_type(left, super::Type::Num)?;
+                self.expect_expr_type(right, super::Type::Num)?;
 
-                Ok(super::Type::Simple(super::SimpleType::Num))
+                Ok(super::Type::Num)
+            }
+
+            parsing::Expression::GreaterThan(left, right) |
+            parsing::Expression::LessThan(left, right) => {
+                log::trace!("Verifying type of arithmetic comparison expression (greater than, less than) - Num type type on both sides expected");
+
+                self.expect_expr_type(left, super::Type::Num)?;
+                self.expect_expr_type(right, super::Type::Num)?;
+
+                Ok(super::Type::Bool)
             }
 
             parsing::Expression::Equal(left, right) => {
-                log::trace!("Verifying types of equality expression (types on both sides of the operator should be the same)");
+                log::trace!("Verifying types of equality expression - types on both sides of the operator should be the same");
 
                 let left_type = self.check_expr(left)?;
                 let right_type = self.check_expr(right)?;
 
                 if left_type == right_type {
-                    Ok(super::Type::Simple(super::SimpleType::Bool))
+                    Ok(super::Type::Bool)
                 }
                 else {
-                    Err(Failure::TypeMismatch {
+                    Err(Failure::UnexpectedType {
                         expected: left_type,
                         encountered: right_type
                     })
                 }
             }
 
-            parsing::Expression::NumberLiteral {pos: _, value: _ } => Ok(super::Type::Simple(super::SimpleType::Num)),
-            parsing::Expression::BooleanLiteral { pos: _, value: _ } => Ok(super::Type::Simple(super::SimpleType::Bool)),
-            parsing::Expression::CharLiteral { pos: _, value: _ } => Ok(super::Type::Simple(super::SimpleType::Char)),
+            parsing::Expression::BooleanNot(expr) => {
+                log::trace!("Verifying type of expression to which boolean NOT operator is being applied - expecting Bool expression to right of operator");
 
-            _ => unimplemented!()
+                self.expect_expr_type(expr, super::Type::Bool)?;
+                Ok(super::Type::Bool)
+            }
+
+            parsing::Expression::UnaryMinus(expr) => {
+                self.expect_expr_type(expr, super::Type::Num)?;
+                Ok(super::Type::Num)
+            }
+
+            parsing::Expression::Array(_) => unimplemented!(),
+            parsing::Expression::StringLiteral { pos: _, value: _ } => unimplemented!(),
+
+            parsing::Expression::NumberLiteral {pos: _, value: _ } => Ok(super::Type::Num),
+            parsing::Expression::BooleanLiteral { pos: _, value: _ } => Ok(super::Type::Bool),
+            parsing::Expression::CharLiteral { pos: _, value: _ } => Ok(super::Type::Char)
         }
     }
 
@@ -138,7 +193,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         let expr_type = self.check_expr(expr)?;
         
         if expr_type == expected { Ok(()) }
-        else { Err(Failure::TypeMismatch { expected, encountered: expr_type }) }
+        else { Err(Failure::UnexpectedType { expected, encountered: expr_type }) }
     }
 }
 
@@ -149,12 +204,13 @@ struct Scope {
 
 struct VariableDef {
     identifier: String,
-    var_type: parsing::Type
+    var_type: super::Type
 }
 
 struct FunctionDef {
     identifier: String,
-    return_type: Option<parsing::Type>
+    parameter_types: Vec<super::Type>,
+    return_type: Option<super::Type>
 }
 
 #[cfg(test)]
@@ -168,17 +224,17 @@ mod tests {
 
         assert_eq!(
             chkr.check_expr(&parsing::Expression::NumberLiteral { pos: Position::new(), value: 10.5 }),
-            Ok(checking::Type::Simple(checking::SimpleType::Num))
+            Ok(checking::Type::Num)
         );
 
         assert_eq!(
             chkr.check_expr(&parsing::Expression::BooleanLiteral { pos: Position::new(), value: true }),
-            Ok(checking::Type::Simple(checking::SimpleType::Bool))
+            Ok(checking::Type::Bool)
         );
 
         assert_eq!(
             chkr.check_expr(&parsing::Expression::CharLiteral { pos: Position::new(), value: '話' }),
-            Ok(checking::Type::Simple(checking::SimpleType::Char))
+            Ok(checking::Type::Char)
         );
 
         assert_eq!(
@@ -186,7 +242,7 @@ mod tests {
                 Box::new(parsing::Expression::CharLiteral { pos: Position::new(), value: 'x' }),
                 Box::new(parsing::Expression::CharLiteral { pos: Position::new(), value: 'y' })
             )),
-            Ok(checking::Type::Simple(checking::SimpleType::Bool))
+            Ok(checking::Type::Bool)
         );
 
         assert_eq!(
@@ -194,12 +250,29 @@ mod tests {
                 Box::new(parsing::Expression::NumberLiteral { pos: Position::new(), value: 1.5 }),
                 Box::new(parsing::Expression::BooleanLiteral { pos: Position::new(), value: false })
             )),
-            Err(super::Failure::TypeMismatch {
-                encountered: checking::Type::Simple(checking::SimpleType::Bool),
-                expected: checking::Type::Simple(checking::SimpleType::Num)
+            Err(super::Failure::UnexpectedType {
+                encountered: checking::Type::Bool,
+                expected: checking::Type::Num
             })
         );
 
-        // TODO: Test arithmetic expr checking...
+        assert_eq!(
+            chkr.check_expr(&parsing::Expression::Add(
+                Box::new(parsing::Expression::NumberLiteral { pos: Position::new(), value: 10.0 }),
+                Box::new(parsing::Expression::NumberLiteral { pos: Position::new(), value: 11.2 })
+            )),
+            Ok(checking::Type::Num)
+        );
+
+        assert_eq!(
+            chkr.check_expr(&parsing::Expression::Divide(
+                Box::new(parsing::Expression::CharLiteral { pos: Position::new(), value: 'x' }),
+                Box::new(parsing::Expression::BooleanLiteral { pos: Position::new(), value: false })
+            )),
+            Err(super::Failure::UnexpectedType {
+                encountered: checking::Type::Char,
+                expected: checking::Type::Num
+            })
+        );
     }
 }
