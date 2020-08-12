@@ -15,7 +15,6 @@
 * [ ] Executor
   * [ ] Perform type checking
   * [ ] Ensure scoping rules are met
-  * [ ] Construct a final immediate representation of the parsed program
-  * [ ] Execute said representation
+  * [ ] Once it has been determined valid, execute the program
 * [ ] Provide appropriate debug logging at all stages
 * [ ] Test extensively
