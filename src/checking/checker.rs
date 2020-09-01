@@ -9,6 +9,7 @@ pub fn input<T: Iterator<Item=parsing::Statement>>(stmts: T) -> Vec<Result<parsi
 pub enum Failure { // TODO: Show stream position in error messages.
     VariableNotInScope(String),
     FunctionNotInScope(String, Vec<super::Type>),
+    VoidFunctionInExpr(String, Vec<super::Type>),
     UnexpectedType { expected: super::Type, encountered: super::Type }
 }
 
@@ -16,7 +17,8 @@ impl fmt::Display for Failure {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Failure::VariableNotInScope(ident) => write!(f, "Reference made to variable with identifier `{}` which is either undefined and inaccessible from the current scope", ident),
-            Failure::FunctionNotInScope(ident, params) => write!(f, "Call made to a function '{}' with parameters {:?} which is either undefinied or inaccessible from the current scope", ident, params),
+            Failure::FunctionNotInScope(ident, params) => write!(f, "Call made to a function '{}' with parameters {:?} which is either undefined or inaccessible from the current scope", ident, params),
+            Failure::VoidFunctionInExpr(ident, params) => write!(f, "Function '{}' with parameters {:?} has no return value and so cannot be used in an expression", ident, params),
             Failure::UnexpectedType { expected, encountered } => write!(f, "Expected type {} yet enountered {}", expected, encountered)
         }
     }
@@ -91,20 +93,45 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         self.scope_stack.pop();
     }
 
+    fn get_inner_scope(&mut self) -> &mut Scope { self.scope_stack.last_mut().unwrap() }
+
     /// Search the current accessible scopes for the variable definition with
     /// the given identifier.
-    fn variable_lookup(&self, identifier: &str) -> Result<&VariableDef, Failure> {
-        Err(Failure::VariableNotInScope(identifier.to_string())) // TODO
+    fn variable_lookup(&self, ident: &str) -> Result<&VariableDef, Failure> {
+        // Reverse the iterator so that the inner most scope has priority (i.e.
+        // automatically handle shadowing).
+        for scope in self.scope_stack.iter().rev() {
+            if let Some(var_def) = scope.find_variable_def(ident) {
+                return Ok(var_def)
+            }
+        }
+        Err(Failure::VariableNotInScope(ident.to_string()))
     }
 
     /// Introduce a new variable into the current inner most scope.
-    fn introduce_variable(&self, identifier: &str, var_type: super::Type) {} // TODO
-
-    fn function_lookup(&self, identifier: &str, parameters: &[super::Type]) -> Result<&FunctionDef, Failure> {
-        Err(Failure::FunctionNotInScope(identifier.to_string(), parameters.to_vec())) // TODO
+    fn introduce_variable(&mut self, ident: &str, var_type: super::Type) {
+        self.get_inner_scope().variable_defs.push(VariableDef {
+            identifier: ident.to_string(),
+            var_type
+        })
     }
 
-    fn introduce_function(&self, identifier: &str, parameters: &[super::Type], return_type: super::Type) {} // TODO
+    fn function_lookup(&self, ident: &str, params: &[super::Type]) -> Result<&FunctionDef, Failure> {
+        for scope in self.scope_stack.iter().rev() {
+            if let Some(func_def) = scope.find_function_def(ident, params) {
+                return Ok(func_def)
+            }
+        }
+        Err(Failure::FunctionNotInScope(ident.to_string(), params.to_vec()))
+    }
+
+    fn introduce_function(&mut self, ident: &str, params: &[super::Type], return_type: Option<super::Type>) {
+        self.get_inner_scope().function_defs.push(FunctionDef {
+            identifier: ident.to_string(),
+            parameter_types: params.to_vec(),
+            return_type
+        })
+    }
 
     fn check_expr(&self, expr: &parsing::Expression) -> Result<super::Type, Failure> {
         match expr {
@@ -125,7 +152,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                 
                 match &definition.return_type {
                     Some(return_type) => Ok(return_type.clone()),
-                    None => panic!() // TODO: Introduce a void type for functions that return nothing?
+                    None => Err(Failure::VoidFunctionInExpr(identifier.to_string(), arg_types))
                 }
             }
 
@@ -202,11 +229,31 @@ struct Scope {
     function_defs: Vec<FunctionDef>
 }
 
+impl Scope {
+    fn find_variable_def(&self, ident: &str) -> Option<&VariableDef> {
+        for def in &self.variable_defs {
+            if def.identifier == ident { return Some(def) }
+        }
+        None
+    }
+
+    fn find_function_def(&self, ident: &str, params: &[super::Type]) -> Option<&FunctionDef> {
+        for def in &self.function_defs {
+            if def.identifier == ident && def.parameter_types.as_slice() == params {
+                return Some(def)
+            }
+        }
+        None
+    }
+}
+
+#[derive(Debug, PartialEq)]
 struct VariableDef {
     identifier: String,
     var_type: super::Type
 }
 
+#[derive(Debug, PartialEq)]
 struct FunctionDef {
     identifier: String,
     parameter_types: Vec<super::Type>,
@@ -217,6 +264,44 @@ struct FunctionDef {
 mod tests {
     use std::iter;
     use crate::{ parsing, checking, stream::Position };
+
+    #[test]
+    fn scoping() {
+        let mut chkr = super::Checker::new(iter::empty());
+
+        chkr.begin_new_scope();
+
+        chkr.introduce_variable("outer", checking::Type::Num);
+        assert_eq!(chkr.variable_lookup("outer"), Ok(&super::VariableDef {
+            identifier: "outer".to_string(),
+            var_type: checking::Type::Num
+        }));
+
+        chkr.begin_new_scope();
+
+        chkr.introduce_variable("inner", checking::Type::Bool);
+
+        assert!(chkr.variable_lookup("inner").is_ok());
+        assert!(chkr.variable_lookup("outer").is_ok());
+
+        chkr.end_scope();
+
+        assert!(chkr.variable_lookup("inner").is_err());
+        assert!(chkr.variable_lookup("outer").is_ok());
+        assert!(chkr.variable_lookup("undefined").is_err());
+
+        chkr.introduce_function("xyz", &[checking::Type::Char], Some(checking::Type::Num));
+        
+        assert_eq!(chkr.function_lookup("xyz", &[checking::Type::Char]), Ok(&super::FunctionDef {
+            identifier: "xyz".to_string(),
+            parameter_types: vec![checking::Type::Char],
+            return_type: Some(checking::Type::Num)
+        }));
+
+        assert!(chkr.function_lookup("xyz", &[checking::Type::Num]).is_err());
+
+        chkr.end_scope();
+    }
 
     #[test]
     fn check_exprs() {
@@ -274,5 +359,10 @@ mod tests {
                 expected: checking::Type::Num
             })
         );
+    }
+
+    #[test]
+    fn check_stmts() {
+        // TODO: ...
     }
 }
