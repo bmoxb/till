@@ -207,9 +207,26 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                 Ok(super::Type::Num)
             }
 
-            parsing::Expression::Array(_) => unimplemented!(),
-            parsing::Expression::StringLiteral { pos: _, value: _ } => unimplemented!(),
+            parsing::Expression::Array(exprs) => {
+                assert!(!exprs.is_empty()); // TODO: Handle empty array literal.
 
+                let contained_type = self.check_expr(&exprs[0])?;
+
+                for expr in exprs {
+                    let expr_type = self.check_expr(expr)?;
+
+                    if contained_type != expr_type {
+                        return Err(Failure::UnexpectedType {
+                            expected: contained_type,
+                            encountered: expr_type
+                        })
+                    }
+                }
+
+                Ok(super::Type::Array(Box::new(contained_type)))
+            }
+
+            parsing::Expression::StringLiteral { pos: _, value: _ } => Ok(super::Type::Array(Box::new(super::Type::Char))),
             parsing::Expression::NumberLiteral {pos: _, value: _ } => Ok(super::Type::Num),
             parsing::Expression::BooleanLiteral { pos: _, value: _ } => Ok(super::Type::Bool),
             parsing::Expression::CharLiteral { pos: _, value: _ } => Ok(super::Type::Char)
@@ -323,6 +340,30 @@ mod tests {
         );
 
         assert_eq!(
+            chkr.check_expr(&parsing::Expression::StringLiteral { pos: Position::new(), value: "string".to_string() }),
+            Ok(checking::Type::Array(Box::new(checking::Type::Char)))
+        );
+
+        assert_eq!(
+            chkr.check_expr(&parsing::Expression::Array(vec![
+                parsing::Expression::NumberLiteral { pos: Position::new(), value: 0.1 },
+                parsing::Expression::NumberLiteral { pos: Position::new(), value: 0.2 }
+            ])),
+            Ok(checking::Type::Array(Box::new(checking::Type::Num)))
+        );
+
+        assert_eq!(
+            chkr.check_expr(&parsing::Expression::Array(vec![
+                parsing::Expression::CharLiteral { pos: Position::new(), value: 'a' },
+                parsing::Expression::BooleanLiteral { pos: Position::new(), value: true }
+            ])),
+            Err(super::Failure::UnexpectedType {
+                expected: checking::Type::Char,
+                encountered: checking::Type::Bool
+            })
+        );
+
+        assert_eq!(
             chkr.check_expr(&parsing::Expression::Equal(
                 Box::new(parsing::Expression::CharLiteral { pos: Position::new(), value: 'x' }),
                 Box::new(parsing::Expression::CharLiteral { pos: Position::new(), value: 'y' })
@@ -337,6 +378,25 @@ mod tests {
             )),
             Err(super::Failure::UnexpectedType {
                 encountered: checking::Type::Bool,
+                expected: checking::Type::Num
+            })
+        );
+
+        assert_eq!(
+            chkr.check_expr(&parsing::Expression::GreaterThan(
+                Box::new(parsing::Expression::NumberLiteral { pos: Position::new(), value: 1.34 }),
+                Box::new(parsing::Expression::NumberLiteral { pos: Position::new(), value: 0.95 })
+            )),
+            Ok(checking::Type::Bool)
+        );
+
+        assert_eq!(
+            chkr.check_expr(&parsing::Expression::LessThan(
+                Box::new(parsing::Expression::CharLiteral { pos: Position::new(), value: 'b' }),
+                Box::new(parsing::Expression::CharLiteral { pos: Position::new(), value: 'a' })
+            )),
+            Err(super::Failure::UnexpectedType {
+                encountered: checking::Type::Char,
                 expected: checking::Type::Num
             })
         );
@@ -358,6 +418,61 @@ mod tests {
                 encountered: checking::Type::Char,
                 expected: checking::Type::Num
             })
+        );
+
+        assert_eq!(
+            chkr.check_expr(&parsing::Expression::Variable {
+                pos: Position::new(),
+                identifier: "undefined".to_string()
+            }),
+            Err(super::Failure::VariableNotInScope("undefined".to_string()))
+        );
+
+        chkr.introduce_variable("var", checking::Type::Num);
+
+        chkr.begin_new_scope();
+        assert_eq!(
+            chkr.check_expr(&parsing::Expression::Variable {
+                pos: Position::new(),
+                identifier: "var".to_string()
+            }),
+            Ok(checking::Type::Num)
+        );
+        chkr.end_scope();
+
+        chkr.introduce_function("func", &[], Some(checking::Type::Num));
+
+        assert_eq!(
+            chkr.check_expr(&parsing::Expression::FunctionCall {
+                pos: Position::new(),
+                identifier: "func".to_string(),
+                args: vec![]
+            }),
+            Ok(checking::Type::Num)
+        );
+
+        assert_eq!(
+            chkr.check_expr(&parsing::Expression::FunctionCall {
+                pos: Position::new(),
+                identifier: "func".to_string(),
+                args: vec![
+                    parsing::Expression::NumberLiteral { pos: Position::new(), value: 1.5 }
+                ]
+            }),
+            Err(super::Failure::FunctionNotInScope("func".to_string(), vec![checking::Type::Num]))
+        );
+
+        chkr.introduce_function("abc", &[checking::Type::Char], None);
+
+        assert_eq!(
+            chkr.check_expr(&parsing::Expression::FunctionCall {
+                pos: Position::new(),
+                identifier: "abc".to_string(),
+                args: vec![
+                    parsing::Expression::CharLiteral { pos: Position::new(), value: 'x' }
+                ]
+            }),
+            Err(super::Failure::VoidFunctionInExpr("abc".to_string(), vec![checking::Type::Char]))
         );
     }
 
