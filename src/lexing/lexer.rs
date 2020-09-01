@@ -42,6 +42,7 @@ pub enum TokenType {
     WhileKeyword, // while
     TrueKeyword, // true
     FalseKeyword, // false
+    ReturnKeyword, // return
 
     BracketOpen, // (
     BracketClose, // )
@@ -192,6 +193,7 @@ lazy_static::lazy_static! {
                         "while" => TokenType::WhileKeyword,
                         "true" => TokenType::TrueKeyword,
                         "false" => TokenType::FalseKeyword,
+                        "return" => TokenType::ReturnKeyword,
                         x => TokenType::Identifier(x.to_string())
                     }
                 }),
@@ -511,11 +513,12 @@ mod tests {
 
     #[test]
     fn keywords() {
-        input(Stream::from_str("if  while  true false"))
+        input(Stream::from_str("if  while  true false  return"))
         .assert_next(TokenType::IfKeyword)
         .assert_next(TokenType::WhileKeyword)
         .assert_next(TokenType::TrueKeyword)
-        .assert_next(TokenType::FalseKeyword);
+        .assert_next(TokenType::FalseKeyword)
+        .assert_next(TokenType::ReturnKeyword);
     }
 
     #[test]

@@ -6,7 +6,7 @@
 
 (* Statements *)
 
-<stmt> ::= <if> | <while> | <function> | <declaration> | <assignment>
+<stmt> ::= <if> | <while> | <function> | <declaration> | <assignment> | <return>
 
 <if> ::= "if" <expr> <block>
 
@@ -21,6 +21,8 @@
 <declaration> ::= <type> identifier ("=" <expr>)?
 
 <assignment> ::= identifier "=" <expr>
+
+<return> ::= "return" <expr>?
 
 (* Expressions *)
 

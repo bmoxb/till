@@ -30,7 +30,9 @@ pub enum Statement {
     VariableAssignment {
         identifier: String,
         assign_to: Expression
-    }
+    },
+
+    Return(Option<Expression>)
 }
 
 pub type Block = Vec<Statement>;

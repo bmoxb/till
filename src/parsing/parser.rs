@@ -10,7 +10,7 @@ pub fn input<T: Iterator<Item=lexer::Token>>(tokens: T) -> StatementStream<T> {
 /// Represents the two types of syntax errors: the encountering of an unexpected
 /// token, and the encountering of the end of the token stream when it is not
 /// expected.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Failure {
     UnexpectedToken(lexer::Token, &'static str),
     UnexpectedStreamEnd(&'static str),
@@ -121,7 +121,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
 
     /// Parse a TILL statement.
     ///
-    /// `<stmt> ::= <if> | <while> | <function> | <declaration> | <assignment>`
+    /// `<stmt> ::= <if> | <while> | <function> | <declaration> | <assignment> | <return>`
     fn statement(&mut self, current_indent: usize, stmt_type_name: &'static str) -> Result<super::Statement, Failure> {
         log::trace!("Parsing statement...");
 
@@ -150,6 +150,9 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
             // Variable declaration:
             lexer::TokenType::BracketSquareOpen |
             lexer::TokenType::TypeIdentifier(_) => self.variable_declaration_stmt(),
+
+            // Return:
+            lexer::TokenType::ReturnKeyword => self.return_stmt(),
 
             _ => Err(Failure::UnexpectedToken(self.consume_token("statement")?, stmt_type_name))
         }
@@ -244,6 +247,15 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
             identifier,
             assign_to: self.expression()?
         })
+    }
+
+    /// Parse a function return statement.
+    ///
+    /// `<return> ::= "return" <expr>?`
+    fn return_stmt(&mut self) -> Result<super::Statement, Failure> {
+        self.consume_token_of_expected_type(&lexer::TokenType::ReturnKeyword, "return keyword")?;
+
+        Ok(super::Statement::Return(self.expression().ok()))
     }
 
     /// `<type> ::= typeidentifier | "[" <type> "]"`
@@ -717,7 +729,7 @@ if x == 10
     }
 
     #[test]
-    fn function_definition_stmts() { // TODO: Add way to return value from function!
+    fn function_definition_stmts() {
         let mut prsr = quick_parse("
 some_function(Num x, Num y) -> [Num]
     if x > y
@@ -745,6 +757,21 @@ no_args()
                 assert_eq!(identifier, "no_args".to_string());
                 assert!(parameters.is_empty());
             }
+            _ => panic!()
+        }
+    }
+
+    #[test]
+    fn return_stmts() {
+        assert_eq!(
+            quick_parse("return\n\n").next().unwrap(),
+            Ok(parsing::Statement::Return(None))
+        );
+
+        match quick_parse("return 2.5").next().unwrap() {
+            Ok(parsing::Statement::Return(Some(
+                parsing::Expression::NumberLiteral { pos: _, value: 2.5 }
+            ))) => {}
             _ => panic!()
         }
     }
