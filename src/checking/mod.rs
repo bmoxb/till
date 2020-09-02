@@ -8,16 +8,18 @@ pub enum Failure { // TODO: Show stream position in error messages.
     FunctionNotInScope(String, Vec<Type>),
     VoidFunctionInExpr(String, Vec<Type>),
     NonexistentPrimitiveType(String),
+    RedeclaredToDifferentType { identifier: String, expected: Type, encountered: Type },
     UnexpectedType { expected: Type, encountered: Type }
 }
 
 impl fmt::Display for Failure {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Failure::VariableNotInScope(ident) => write!(f, "Reference made to variable with identifier `{}` which is either undefined and inaccessible from the current scope", ident),
-            Failure::FunctionNotInScope(ident, params) => write!(f, "Call made to a function '{}' with parameters {:?} which is either undefined or inaccessible from the current scope", ident, params),
-            Failure::VoidFunctionInExpr(ident, params) => write!(f, "Function '{}' with parameters {:?} has no return value and so cannot be used in an expression", ident, params),
+            Failure::VariableNotInScope(ident) => write!(f, "Reference made to variable '{}' which is either undefined or inaccessible from the current scope", ident),
+            Failure::FunctionNotInScope(ident, params) => write!(f, "Call made to function '{}' with parameter types {:?} which is either undefined or inaccessible from the current scope", ident, params),
+            Failure::VoidFunctionInExpr(ident, params) => write!(f, "Function '{}' with parameter types {:?} has no return value and so cannot be used in an expression", ident, params),
             Failure::NonexistentPrimitiveType(ident) => write!(f, "The primitive type '{}' does not exist - please use either 'Num', 'Char' or 'Bool'", ident),
+            Failure::RedeclaredToDifferentType { identifier, expected, encountered } => write!(f, "Attempt made to redeclare variable '{}' of type {} to different type {} in the same scope", identifier, expected, encountered),
             Failure::UnexpectedType { expected, encountered } => write!(f, "Expected type {} yet enountered {}", expected, encountered)
         }
     }

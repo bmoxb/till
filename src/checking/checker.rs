@@ -67,7 +67,8 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                     log::trace!("Redeclaring variable '{}' in same scope", identifier);
 
                     if checking_type != existing_def.var_type {
-                        return Err(super::Failure::UnexpectedType {
+                        return Err(super::Failure::RedeclaredToDifferentType {
+                            identifier: identifier.to_string(),
                             expected: existing_def.var_type.clone(),
                             encountered: checking_type
                         });
@@ -644,7 +645,8 @@ mod tests {
                 var_type: parsing::Type::Identifier { pos: Position::new(), identifier: "Char".to_string() },
                 value: None
             }),
-            Err(checking::Failure::UnexpectedType { // TODO: Introduce a new error type for this?
+            Err(checking::Failure::RedeclaredToDifferentType {
+                identifier: "x".to_string(),
                 expected: checking::Type::Num,
                 encountered: checking::Type::Char
             })
