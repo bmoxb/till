@@ -1,5 +1,4 @@
 use crate::parsing;
-use std::fmt;
 
 pub fn input<T: Iterator<Item=parsing::Statement>>(stmts: T) -> Vec<super::Result<parsing::Statement>> {
     Checker::new(stmts).collect() // Collected so that checking happens immediately.
@@ -57,11 +56,28 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
             parsing::Statement::VariableDeclaration { var_type, identifier, value } => {
                 let checking_type = super::Type::from_parsing_type(var_type)?;
 
+                // Ensure initial value expression is of correct type:
                 if let Some(initial_value) = value {
                     self.expect_expr_type(initial_value, checking_type.clone())?;
                 }
 
-                self.introduce_variable(identifier, checking_type);
+                // If variable is already defined then ensure it is being redeclared
+                // to the same type:
+                if let Some(existing_def) = self.get_inner_scope().find_variable_def(identifier) {
+                    log::trace!("Redeclaring variable '{}' in same scope", identifier);
+
+                    if checking_type != existing_def.var_type {
+                        return Err(super::Failure::UnexpectedType {
+                            expected: existing_def.var_type.clone(),
+                            encountered: checking_type
+                        });
+                    }
+                }
+                else {
+                    log::trace!("Introducing variable '{}' to current scope", identifier);
+
+                    self.introduce_variable(identifier, checking_type);
+                }
 
                 Ok(None)
             }
@@ -80,7 +96,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                 Ok(None)
             }
 
-            _ => unimplemented!()
+            parsing::Statement::FunctionDefinition { identifier, parameters, return_type, body } => unimplemented!()
         }
     }
 
@@ -319,8 +335,6 @@ mod tests {
     fn scoping() {
         let mut chkr = new_empty_checker();
 
-        chkr.begin_new_scope();
-
         chkr.introduce_variable("outer", checking::Type::Num);
         assert_eq!(chkr.variable_lookup("outer"), Ok(&super::VariableDef {
             identifier: "outer".to_string(),
@@ -349,8 +363,6 @@ mod tests {
         }));
 
         assert!(chkr.function_lookup("xyz", &[checking::Type::Num]).is_err());
-
-        chkr.end_scope();
     }
 
     #[test]
@@ -598,5 +610,46 @@ mod tests {
                 encountered: checking::Type::Bool
             })
         );
+    }
+
+    #[test]
+    fn shadowing() -> checking::Result<()> {
+        let mut chkr = new_empty_checker();
+
+        chkr.check_stmt(&parsing::Statement::VariableDeclaration {
+            identifier: "x".to_string(),
+            var_type: parsing::Type::Identifier { pos: Position::new(), identifier: "Num".to_string() },
+            value: None
+        })?;
+
+        chkr.begin_new_scope();
+
+        // Shadow variable 'x' by declaring a variable in the inner scope of the
+        // same name but a different type:
+        chkr.check_stmt(&parsing::Statement::VariableDeclaration {
+            identifier: "x".to_string(),
+            var_type: parsing::Type::Identifier { pos: Position::new(), identifier: "Bool".to_string() },
+            value: None
+        })?;
+
+        assert_eq!(chkr.variable_lookup("x")?.var_type, checking::Type::Bool);
+
+        chkr.end_scope();
+
+        assert_eq!(chkr.variable_lookup("x")?.var_type, checking::Type::Num);
+
+        assert_eq!(
+            chkr.check_stmt(&parsing::Statement::VariableDeclaration {
+                identifier: "x".to_string(),
+                var_type: parsing::Type::Identifier { pos: Position::new(), identifier: "Char".to_string() },
+                value: None
+            }),
+            Err(checking::Failure::UnexpectedType { // TODO: Introduce a new error type for this?
+                expected: checking::Type::Num,
+                encountered: checking::Type::Char
+            })
+        );
+
+        Ok(())
     }
 }
