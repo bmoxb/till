@@ -73,25 +73,14 @@ fn execute_by_repl() {
 }
 
 fn execute(strm: stream::Stream) {
-    let tokens = lexing::lexer::input(strm).filter_map(|value| {
-        match value {
-            Ok(lex_tok) => Some(lex_tok),
-            Err(e) => {
-                println!("LEXICAL ERROR: {}", e);
-                None
-            }
-        }
-    });
+    let tokens = lexing::lexer::input(strm).filter_map(|x| filter_map_func(x, "LEXICAL"));
 
-    let syntax_tree = parsing::parser::input(tokens).filter_map(|value| {
-        match value {
-            Ok(stmt) => Some(stmt),
-            Err(e) => {
-                println!("SYNTAX ERROR: {}", e);
-                None
-            }
-        }
-    });
+    let unchecked_syntax_tree = parsing::parser::input(tokens).filter_map(|x| filter_map_func(x, "SYNTAX"));
 
-    syntax_tree.last();
+    checking::checker::input(unchecked_syntax_tree).filter_map(|x| filter_map_func(x, "SEMANTIC")).last();
+}
+
+fn filter_map_func<T, E: std::fmt::Display>(value: Result<T, E>, error_type: &str) -> Option<T> {
+    if let Err(e) = &value { println!("{} ERROR: {}", error_type, e); }
+    value.ok()
 }

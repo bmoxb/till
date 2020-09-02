@@ -1,7 +1,9 @@
 use crate::parsing;
 
-pub fn input<T: Iterator<Item=parsing::Statement>>(stmts: T) -> Vec<super::Result<parsing::Statement>> {
-    Checker::new(stmts).collect() // Collected so that checking happens immediately.
+pub fn input<T: Iterator<Item=parsing::Statement>>(stmts: T) -> Checker<T> {
+    let mut this = Checker { stmts: stmts, scope_stack: Vec::new() };
+    this.begin_new_scope();
+    this
 }
 
 pub struct Checker<T: Iterator<Item=parsing::Statement>> {
@@ -34,12 +36,6 @@ impl<T: Iterator<Item=parsing::Statement>> Iterator for Checker<T> {
 }
 
 impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
-    fn new(stmts: T) -> Checker<T> {
-        let mut this = Checker { stmts: stmts, scope_stack: Vec::new() };
-        this.begin_new_scope();
-        this
-    }
-
     /// Check the validity of a given statement. May return a type in the case of
     /// the statement being a return statement.
     fn check_stmt(&mut self, stmt: &parsing::Statement) -> super::Result<Option<super::Type>> {
@@ -330,7 +326,7 @@ mod tests {
     use std::iter;
     use crate::{ parsing, checking, stream::Position };
 
-    fn new_empty_checker() -> super::Checker<iter::Empty<parsing::Statement>> { super::Checker::new(iter::empty()) }
+    fn new_empty_checker() -> super::Checker<iter::Empty<parsing::Statement>> { super::input(iter::empty()) }
 
     #[test]
     fn scoping() {
