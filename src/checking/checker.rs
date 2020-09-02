@@ -35,16 +35,18 @@ impl<T: Iterator<Item=parsing::Statement>> Iterator for Checker<T> {
     fn next(&mut self) -> Option<Self::Item> {
         match self.stmts.next() {
             Some(stmt) => {
-                match self.check_stmt(&stmt) {
-                    Err(e) => Some(Err(e)),
-                    Ok(_) => Some(Ok(stmt))
-                }
+                Some(match self.check_stmt(&stmt) {
+                    Err(e) => Err(e),
+                    Ok(_) => Ok(stmt)
+                })
             }
 
             None => {
-                log::trace!("Reached end of statement stream - ending program scope");
+                log::info!("Reached end of statement stream - ending program scope");
+
                 self.end_scope();
                 assert!(self.scope_stack.is_empty());
+
                 None
             }
         }
@@ -58,14 +60,19 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         this
     }
 
-    fn check_stmt(&mut self, stmt: &parsing::Statement) -> Result<(), Failure> {
+    /// Check the validity of a given statement. May return a type in the case of
+    /// the statement being a return statement.
+    fn check_stmt(&mut self, stmt: &parsing::Statement) -> Result<Option<super::Type>, Failure> {
         match stmt {
             parsing::Statement::If { condition, block } |
             parsing::Statement::While { condition, block } => {
                 self.expect_expr_type(condition, super::Type::Bool)?;
-                self.check_block(block)?; // The return type of the block is irrelevant.
-                Ok(())
+                Ok(self.check_block(block)?)
             }
+
+            parsing::Statement::Return(Some(expr)) => Ok(Some(self.check_expr(expr)?)),
+            parsing::Statement::Return(None) => Ok(None),
+
             _ => unimplemented!()
         }
     }
@@ -75,11 +82,28 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
     /// is returned within `Ok(Some(...))`. If there are multiple return statements,
     /// then it will be ensured that they are all returning the same type.
     fn check_block(&mut self, block: &parsing::Block) -> Result<Option<super::Type>, Failure> {
+        let mut ret_type = None;
+
         self.begin_new_scope();
-        for stmt in block { self.check_stmt(stmt)? }
+
+        for stmt in block {
+            if let Some(new) = self.check_stmt(stmt)? {
+                // Has a return type already been established for this block?
+                if let Some(current) = &ret_type {
+                    if new != *current { // Can't have return statements with different types!
+                        return Err(Failure::UnexpectedType {
+                            expected: current.clone(),
+                            encountered: new
+                        })
+                    }
+                }
+                else { ret_type.replace(new); }
+            }
+        }
+
         self.end_scope();
 
-        Ok(None) // TODO: temp
+        Ok(ret_type)
     }
 
     fn begin_new_scope(&mut self) {
@@ -282,9 +306,11 @@ mod tests {
     use std::iter;
     use crate::{ parsing, checking, stream::Position };
 
+    fn new_empty_checker() -> super::Checker<iter::Empty<parsing::Statement>> { super::Checker::new(iter::empty()) }
+
     #[test]
     fn scoping() {
-        let mut chkr = super::Checker::new(iter::empty());
+        let mut chkr = new_empty_checker();
 
         chkr.begin_new_scope();
 
@@ -322,7 +348,7 @@ mod tests {
 
     #[test]
     fn check_exprs() {
-        let mut chkr = super::Checker::new(iter::empty());
+        let mut chkr = new_empty_checker();
 
         assert_eq!(
             chkr.check_expr(&parsing::Expression::NumberLiteral { pos: Position::new(), value: 10.5 }),
@@ -478,6 +504,47 @@ mod tests {
 
     #[test]
     fn check_stmts() {
+        let mut chkr = new_empty_checker();
+
+        assert_eq!(
+            chkr.check_stmt(&parsing::Statement::Return(None)),
+            Ok(None)
+        );
+
+        assert_eq!(
+            chkr.check_stmt(&parsing::Statement::Return(Some(
+                parsing::Expression::Add(
+                    Box::new(parsing::Expression::NumberLiteral { pos: Position::new(), value: 1.2 }),
+                    Box::new(parsing::Expression::NumberLiteral { pos: Position::new(), value: 2.8 })
+                )
+            ))),
+            Ok(Some(checking::Type::Num))
+        );
+
+        assert_eq!(
+            chkr.check_stmt(&parsing::Statement::If {
+                condition: parsing::Expression::BooleanLiteral { pos: Position::new(), value: true },
+                block: vec![
+                    parsing::Statement::Return(Some(parsing::Expression::CharLiteral { pos: Position::new(), value: 'x' }))
+                ]
+            }),
+            Ok(Some(checking::Type::Char))
+        );
+
+        assert_eq!(
+            chkr.check_stmt(&parsing::Statement::While {
+                condition: parsing::Expression::StringLiteral { pos: Position::new(), value: "this isn't a bool!".to_string() },
+                block: vec![]
+            }),
+            Err(super::Failure::UnexpectedType {
+                expected: checking::Type::Bool,
+                encountered: checking::Type::Array(Box::new(checking::Type::Char))
+            })
+        )
+    }
+
+    #[test]
+    fn check_blocks() {
         // TODO: ...
     }
 }
