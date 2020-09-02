@@ -1,27 +1,8 @@
 use crate::parsing;
 use std::fmt;
 
-pub fn input<T: Iterator<Item=parsing::Statement>>(stmts: T) -> Vec<Result<parsing::Statement, Failure>> {
+pub fn input<T: Iterator<Item=parsing::Statement>>(stmts: T) -> Vec<Result<parsing::Statement, super::Failure>> {
     Checker::new(stmts).collect() // Collected so that checking happens immediately.
-}
-
-#[derive(Debug, PartialEq)]
-pub enum Failure { // TODO: Show stream position in error messages.
-    VariableNotInScope(String),
-    FunctionNotInScope(String, Vec<super::Type>),
-    VoidFunctionInExpr(String, Vec<super::Type>),
-    UnexpectedType { expected: super::Type, encountered: super::Type }
-}
-
-impl fmt::Display for Failure {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Failure::VariableNotInScope(ident) => write!(f, "Reference made to variable with identifier `{}` which is either undefined and inaccessible from the current scope", ident),
-            Failure::FunctionNotInScope(ident, params) => write!(f, "Call made to a function '{}' with parameters {:?} which is either undefined or inaccessible from the current scope", ident, params),
-            Failure::VoidFunctionInExpr(ident, params) => write!(f, "Function '{}' with parameters {:?} has no return value and so cannot be used in an expression", ident, params),
-            Failure::UnexpectedType { expected, encountered } => write!(f, "Expected type {} yet enountered {}", expected, encountered)
-        }
-    }
 }
 
 pub struct Checker<T: Iterator<Item=parsing::Statement>> {
@@ -30,7 +11,7 @@ pub struct Checker<T: Iterator<Item=parsing::Statement>> {
 }
 
 impl<T: Iterator<Item=parsing::Statement>> Iterator for Checker<T> {
-    type Item = Result<parsing::Statement, Failure>;
+    type Item = Result<parsing::Statement, super::Failure>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.stmts.next() {
@@ -62,16 +43,28 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
 
     /// Check the validity of a given statement. May return a type in the case of
     /// the statement being a return statement.
-    fn check_stmt(&mut self, stmt: &parsing::Statement) -> Result<Option<super::Type>, Failure> {
+    fn check_stmt(&mut self, stmt: &parsing::Statement) -> Result<Option<super::Type>, super::Failure> {
         match stmt {
+            parsing::Statement::Return(Some(expr)) => Ok(Some(self.check_expr(expr)?)),
+            parsing::Statement::Return(None) => Ok(None),
+
             parsing::Statement::If { condition, block } |
             parsing::Statement::While { condition, block } => {
                 self.expect_expr_type(condition, super::Type::Bool)?;
                 Ok(self.check_block(block)?)
             }
 
-            parsing::Statement::Return(Some(expr)) => Ok(Some(self.check_expr(expr)?)),
-            parsing::Statement::Return(None) => Ok(None),
+            parsing::Statement::VariableDeclaration { var_type, identifier, value } => {
+                let checking_type = super::Type::from_parsing_type(var_type)?;
+
+                if let Some(initial_value) = value {
+                    self.expect_expr_type(initial_value, checking_type.clone())?;
+                }
+
+                self.introduce_variable(identifier, checking_type);
+
+                Ok(None)
+            }
 
             _ => unimplemented!()
         }
@@ -81,7 +74,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
     /// a return statement be encountered, the type of the returned expression
     /// is returned within `Ok(Some(...))`. If there are multiple return statements,
     /// then it will be ensured that they are all returning the same type.
-    fn check_block(&mut self, block: &parsing::Block) -> Result<Option<super::Type>, Failure> {
+    fn check_block(&mut self, block: &parsing::Block) -> Result<Option<super::Type>, super::Failure> {
         let mut ret_type = None;
 
         self.begin_new_scope();
@@ -91,7 +84,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                 // Has a return type already been established for this block?
                 if let Some(current) = &ret_type {
                     if new != *current { // Can't have return statements with different types!
-                        return Err(Failure::UnexpectedType {
+                        return Err(super::Failure::UnexpectedType {
                             expected: current.clone(),
                             encountered: new
                         })
@@ -121,7 +114,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
 
     /// Search the current accessible scopes for the variable definition with
     /// the given identifier.
-    fn variable_lookup(&self, ident: &str) -> Result<&VariableDef, Failure> {
+    fn variable_lookup(&self, ident: &str) -> Result<&VariableDef, super::Failure> {
         // Reverse the iterator so that the inner most scope has priority (i.e.
         // automatically handle shadowing).
         for scope in self.scope_stack.iter().rev() {
@@ -129,7 +122,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                 return Ok(var_def)
             }
         }
-        Err(Failure::VariableNotInScope(ident.to_string()))
+        Err(super::Failure::VariableNotInScope(ident.to_string()))
     }
 
     /// Introduce a new variable into the current inner most scope.
@@ -140,13 +133,13 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         })
     }
 
-    fn function_lookup(&self, ident: &str, params: &[super::Type]) -> Result<&FunctionDef, Failure> {
+    fn function_lookup(&self, ident: &str, params: &[super::Type]) -> Result<&FunctionDef, super::Failure> {
         for scope in self.scope_stack.iter().rev() {
             if let Some(func_def) = scope.find_function_def(ident, params) {
                 return Ok(func_def)
             }
         }
-        Err(Failure::FunctionNotInScope(ident.to_string(), params.to_vec()))
+        Err(super::Failure::FunctionNotInScope(ident.to_string(), params.to_vec()))
     }
 
     fn introduce_function(&mut self, ident: &str, params: &[super::Type], return_type: Option<super::Type>) {
@@ -157,7 +150,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         })
     }
 
-    fn check_expr(&self, expr: &parsing::Expression) -> Result<super::Type, Failure> {
+    fn check_expr(&self, expr: &parsing::Expression) -> Result<super::Type, super::Failure> {
         match expr {
             parsing::Expression::Variable { pos: _, identifier } => {
                 log::trace!("Searching scope for the type of referenced variable with identifier '{}'", identifier);
@@ -176,7 +169,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                 
                 match &definition.return_type {
                     Some(return_type) => Ok(return_type.clone()),
-                    None => Err(Failure::VoidFunctionInExpr(identifier.to_string(), arg_types))
+                    None => Err(super::Failure::VoidFunctionInExpr(identifier.to_string(), arg_types))
                 }
             }
 
@@ -212,7 +205,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                     Ok(super::Type::Bool)
                 }
                 else {
-                    Err(Failure::UnexpectedType {
+                    Err(super::Failure::UnexpectedType {
                         expected: left_type,
                         encountered: right_type
                     })
@@ -240,7 +233,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                     let expr_type = self.check_expr(expr)?;
 
                     if contained_type != expr_type {
-                        return Err(Failure::UnexpectedType {
+                        return Err(super::Failure::UnexpectedType {
                             expected: contained_type,
                             encountered: expr_type
                         })
@@ -257,11 +250,11 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         }
     }
 
-    fn expect_expr_type(&self, expr: &parsing::Expression, expected: super::Type) -> Result<(), Failure> {
+    fn expect_expr_type(&self, expr: &parsing::Expression, expected: super::Type) -> Result<(), super::Failure> {
         let expr_type = self.check_expr(expr)?;
         
         if expr_type == expected { Ok(()) }
-        else { Err(Failure::UnexpectedType { expected, encountered: expr_type }) }
+        else { Err(super::Failure::UnexpectedType { expected, encountered: expr_type }) }
     }
 }
 
@@ -383,7 +376,7 @@ mod tests {
                 parsing::Expression::CharLiteral { pos: Position::new(), value: 'a' },
                 parsing::Expression::BooleanLiteral { pos: Position::new(), value: true }
             ])),
-            Err(super::Failure::UnexpectedType {
+            Err(checking::Failure::UnexpectedType {
                 expected: checking::Type::Char,
                 encountered: checking::Type::Bool
             })
@@ -402,7 +395,7 @@ mod tests {
                 Box::new(parsing::Expression::NumberLiteral { pos: Position::new(), value: 1.5 }),
                 Box::new(parsing::Expression::BooleanLiteral { pos: Position::new(), value: false })
             )),
-            Err(super::Failure::UnexpectedType {
+            Err(checking::Failure::UnexpectedType {
                 encountered: checking::Type::Bool,
                 expected: checking::Type::Num
             })
@@ -421,7 +414,7 @@ mod tests {
                 Box::new(parsing::Expression::CharLiteral { pos: Position::new(), value: 'b' }),
                 Box::new(parsing::Expression::CharLiteral { pos: Position::new(), value: 'a' })
             )),
-            Err(super::Failure::UnexpectedType {
+            Err(checking::Failure::UnexpectedType {
                 encountered: checking::Type::Char,
                 expected: checking::Type::Num
             })
@@ -440,7 +433,7 @@ mod tests {
                 Box::new(parsing::Expression::CharLiteral { pos: Position::new(), value: 'x' }),
                 Box::new(parsing::Expression::BooleanLiteral { pos: Position::new(), value: false })
             )),
-            Err(super::Failure::UnexpectedType {
+            Err(checking::Failure::UnexpectedType {
                 encountered: checking::Type::Char,
                 expected: checking::Type::Num
             })
@@ -451,7 +444,7 @@ mod tests {
                 pos: Position::new(),
                 identifier: "undefined".to_string()
             }),
-            Err(super::Failure::VariableNotInScope("undefined".to_string()))
+            Err(checking::Failure::VariableNotInScope("undefined".to_string()))
         );
 
         chkr.introduce_variable("var", checking::Type::Num);
@@ -485,7 +478,7 @@ mod tests {
                     parsing::Expression::NumberLiteral { pos: Position::new(), value: 1.5 }
                 ]
             }),
-            Err(super::Failure::FunctionNotInScope("func".to_string(), vec![checking::Type::Num]))
+            Err(checking::Failure::FunctionNotInScope("func".to_string(), vec![checking::Type::Num]))
         );
 
         chkr.introduce_function("abc", &[checking::Type::Char], None);
@@ -498,7 +491,7 @@ mod tests {
                     parsing::Expression::CharLiteral { pos: Position::new(), value: 'x' }
                 ]
             }),
-            Err(super::Failure::VoidFunctionInExpr("abc".to_string(), vec![checking::Type::Char]))
+            Err(checking::Failure::VoidFunctionInExpr("abc".to_string(), vec![checking::Type::Char]))
         );
     }
 
@@ -536,15 +529,40 @@ mod tests {
                 condition: parsing::Expression::StringLiteral { pos: Position::new(), value: "this isn't a bool!".to_string() },
                 block: vec![]
             }),
-            Err(super::Failure::UnexpectedType {
+            Err(checking::Failure::UnexpectedType {
                 expected: checking::Type::Bool,
                 encountered: checking::Type::Array(Box::new(checking::Type::Char))
             })
-        )
-    }
+        );
 
-    #[test]
-    fn check_blocks() {
-        // TODO: ...
+        assert_eq!(
+            chkr.check_stmt(&parsing::Statement::VariableDeclaration {
+                identifier: "pi".to_string(),
+                var_type: parsing::Type::Identifier { pos: Position::new(), identifier: "Num".to_string() },
+                value: Some(parsing::Expression::NumberLiteral { pos: Position::new(), value: 3.14 })
+            }),
+            Ok(None)
+        );
+
+        assert_eq!(
+            chkr.check_stmt(&parsing::Statement::VariableDeclaration {
+                identifier: "abc".to_string(),
+                var_type: parsing::Type::Array(Box::new(parsing::Type::Identifier { pos: Position::new(), identifier: "Num".to_string() })),
+                value: Some(parsing::Expression::StringLiteral { pos: Position::new(), value: "this isn't a Num array!".to_string() })
+            }),
+            Err(checking::Failure::UnexpectedType {
+                encountered: checking::Type::Array(Box::new(checking::Type::Char)),
+                expected: checking::Type::Array(Box::new(checking::Type::Num))
+            })
+        );
+
+        assert_eq!(
+            chkr.check_stmt(&parsing::Statement::VariableDeclaration {
+                identifier: "xyz".to_string(),
+                var_type: parsing::Type::Identifier { pos: Position::new(), identifier: "Oops".to_string() },
+                value: None
+            }),
+            Err(checking::Failure::NonexistentPrimitiveType("Oops".to_string()))
+        );
     }
 }
