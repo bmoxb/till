@@ -63,7 +63,11 @@ pub enum Statement {
 pub type Block = Vec<Statement>;
 
 #[derive(Debug, PartialEq)]
-pub struct Parameter ( Type, String, stream::Position );
+pub struct Parameter {
+    pub param_type: Type,
+    pub identifier: String,
+    pub pos: stream::Position
+}
 
 #[derive(Debug, PartialEq)]
 pub enum Type {

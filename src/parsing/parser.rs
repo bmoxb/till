@@ -265,10 +265,11 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
         
         let identifier_tok = self.consume_token("function parameter identifier")?;
         let position = identifier_tok.lexeme.pos.clone();
-        
-        Ok(super::Parameter(param_type,
-                            extract_string_from_identifier_token(identifier_tok, "function parameter identifier")?,
-                            position))
+
+        Ok(super::Parameter {
+            param_type, pos: position,
+            identifier: extract_string_from_identifier_token(identifier_tok, "function parameter identifier")?
+        })
     }
 
     /// Parse a block (a collection of one or more sequential statements that
@@ -699,12 +700,10 @@ if x == 10
 
     #[test]
     fn function_parameters() {
-        match quick_parse("[Num] my_param").parse_parameter() {
-            Ok(parsing::Parameter(parsing::Type::Array(_), identifier, _)) => {
-                assert_eq!(identifier, "my_param".to_string());
-            }
-            _ => panic!()
-        }
+        assert_pattern!(
+            quick_parse("[Num] my_param").parse_parameter(),
+            Ok(parsing::Parameter { param_type: parsing::Type::Array(_), identifier: _, pos: _ }) 
+        )
     }
 
     #[test]

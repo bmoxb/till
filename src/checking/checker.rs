@@ -93,7 +93,60 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                 Ok(None)
             }
 
-            parsing::Statement::FunctionDefinition { identifier, parameters, return_type, body } => unimplemented!()
+            parsing::Statement::FunctionDefinition { identifier, parameters, return_type, body } => {
+                let param_types = parameters.iter().map(|param| {
+                    super::Type::from_parsing_type(&param.param_type)
+                }).collect::<super::Result<Vec<super::Type>>>()?;
+
+                // Is a function with the same identifier and type signature
+                // defined and accessible from this scope?
+                if self.function_lookup(identifier, param_types.as_slice()).is_ok() {
+                    Err(super::Failure::RedefinedExistingFunction(identifier.to_string(), param_types))
+                }
+                else {
+                    // Return type specified in function signature:
+                    if let Some(parsing_return_type) = return_type {
+                        let expected_return_type = super::Type::from_parsing_type(parsing_return_type)?;
+
+                        // TODO: Introduce function parameters into body block!
+
+                        // Function body should return something if a return type
+                        // has been specified in the signature:
+                        if let Some(body_return_type) = self.check_block(body)? {
+                            // Are those types the same?
+                            if body_return_type == expected_return_type {
+                                self.introduce_function(identifier, param_types.as_slice(), Some(body_return_type));
+                                Ok(None)
+                            }
+                            else {
+                                Err(super::Failure::UnexpectedType {
+                                    encountered: body_return_type,
+                                    expected: expected_return_type
+                                })
+                            }
+                        }
+                        else {
+                            return Err(super::Failure::FunctionDoesNotReturn(
+                                identifier.to_string(), param_types,
+                                expected_return_type
+                            ));
+                        }
+                    } // No return type specified in signature:
+                    else {
+                        // Does function body return something?
+                        if let Some(body_return_type) = self.check_block(body)? {
+                            Err(super::Failure::VoidFunctionReturnsValue(
+                                identifier.to_string(), param_types,
+                                body_return_type
+                            ))
+                        }
+                        else {
+                            self.introduce_function(identifier, param_types.as_slice(), None);
+                            Ok(None)
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -519,7 +572,7 @@ mod tests {
     }
 
     #[test]
-    fn check_stmts() {
+    fn check_stmts() -> checking::Result<()> {
         let mut chkr = new_empty_checker();
 
         assert_eq!(
@@ -607,10 +660,79 @@ mod tests {
                 encountered: checking::Type::Bool
             })
         );
+
+        assert_eq!(
+            chkr.check_stmt(&parsing::Statement::FunctionDefinition {
+                identifier: "func".to_string(),
+                parameters: vec![],
+                return_type: None,
+                body: vec![]
+            }),
+            Ok(None)
+        );
+        assert!(chkr.function_lookup("func", &[])?.return_type.is_none());
+
+        assert_eq!(
+            chkr.check_stmt(&parsing::Statement::FunctionDefinition {
+                identifier: "func".to_string(),
+                parameters: vec![],
+                return_type: Some(parsing::Type::Identifier {
+                    pos: Position::new(), identifier: "Num".to_string()
+                }),
+                body: vec![
+                    parsing::Statement::Return(Some(parsing::Expression::NumberLiteral {
+                        pos: Position::new(), value: 1.5
+                    }))
+                ]
+            }),
+            Err(checking::Failure::RedefinedExistingFunction(
+                "func".to_string(), vec![]
+            ))
+        );
+
+        assert_eq!(
+            chkr.check_stmt(&parsing::Statement::FunctionDefinition {
+                identifier: "func".to_string(),
+                parameters: vec![
+                    parsing::Parameter {
+                        pos: Position::new(), identifier: "x".to_string(),
+                        param_type: parsing::Type::Identifier {
+                            pos: Position::new(), identifier: "Char".to_string()
+                        }
+                    }
+                ],
+                return_type: Some(parsing::Type::Identifier {
+                    pos: Position::new(), identifier: "Num".to_string()
+                }),
+                body: vec![]
+            }),
+            Err(checking::Failure::FunctionDoesNotReturn(
+                "func".to_string(), vec![checking::Type::Char],
+                checking::Type::Num
+            ))
+        );
+
+        assert_eq!(
+            chkr.check_stmt(&parsing::Statement::FunctionDefinition {
+                identifier: "xyz".to_string(),
+                parameters: vec![],
+                return_type: None,
+                body: vec![
+                    parsing::Statement::Return(Some(parsing::Expression::BooleanLiteral {
+                        pos: Position::new(), value: true
+                    }))
+                ]
+            }),
+            Err(checking::Failure::VoidFunctionReturnsValue(
+                "xyz".to_string(), vec![], checking::Type::Bool
+            ))
+        );
+
+        Ok(())
     }
 
     #[test]
-    fn shadowing() -> checking::Result<()> {
+    fn variable_shadowing() -> checking::Result<()> {
         let mut chkr = new_empty_checker();
 
         chkr.check_stmt(&parsing::Statement::VariableDeclaration {

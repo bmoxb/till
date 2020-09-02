@@ -7,6 +7,9 @@ pub enum Failure { // TODO: Show stream position in error messages.
     VariableNotInScope(String),
     FunctionNotInScope(String, Vec<Type>),
     VoidFunctionInExpr(String, Vec<Type>),
+    RedefinedExistingFunction(String, Vec<Type>),
+    VoidFunctionReturnsValue(String, Vec<Type>, Type),
+    FunctionDoesNotReturn(String, Vec<Type>, Type),
     NonexistentPrimitiveType(String),
     RedeclaredToDifferentType { identifier: String, expected: Type, encountered: Type },
     UnexpectedType { expected: Type, encountered: Type }
@@ -18,6 +21,9 @@ impl fmt::Display for Failure {
             Failure::VariableNotInScope(ident) => write!(f, "Reference made to variable '{}' which is either undefined or inaccessible from the current scope", ident),
             Failure::FunctionNotInScope(ident, params) => write!(f, "Call made to function '{}' with parameter types {:?} which is either undefined or inaccessible from the current scope", ident, params),
             Failure::VoidFunctionInExpr(ident, params) => write!(f, "Function '{}' with parameter types {:?} has no return value and so cannot be used in an expression", ident, params),
+            Failure::RedefinedExistingFunction(ident, params) => write!(f, "Function '{}' with parameter types {:?} has already been defined", ident, params),
+            Failure::VoidFunctionReturnsValue(ident, params, ret_type) => write!(f, "Function '{}' with parameter types {:?} defined without return type yet has a block that returns a value of type {}", ident, params, ret_type),
+            Failure::FunctionDoesNotReturn(ident, params, ret_type) => write!(f, "Function '{}' with parameter types {:?} expected to return a value of type {}", ident, params, ret_type),
             Failure::NonexistentPrimitiveType(ident) => write!(f, "The primitive type '{}' does not exist - please use either 'Num', 'Char' or 'Bool'", ident),
             Failure::RedeclaredToDifferentType { identifier, expected, encountered } => write!(f, "Attempt made to redeclare variable '{}' of type {} to different type {} in the same scope", identifier, expected, encountered),
             Failure::UnexpectedType { expected, encountered } => write!(f, "Expected type {} yet enountered {}", expected, encountered)
