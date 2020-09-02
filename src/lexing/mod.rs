@@ -42,6 +42,8 @@ impl fmt::Display for Failure {
     }
 }
 
+type Result<T> = std::result::Result<T, Failure>;
+
 /// Iterator that yields tokens.
 pub struct GenericTokenStream<'a, TokenType, StateKey> {
     strm: stream::Stream,
@@ -50,7 +52,7 @@ pub struct GenericTokenStream<'a, TokenType, StateKey> {
 
 impl<'a, TokenType, StateKey> Iterator for GenericTokenStream<'a, TokenType, StateKey>
 where StateKey: Eq + Copy + Hash + fmt::Debug, TokenType: Clone + fmt::Debug {
-    type Item = Result<GenericToken<TokenType>, Failure>;
+    type Item = Result<GenericToken<TokenType>>;
 
     /// Attempt to yield the next token.
     fn next(&mut self) -> Option<Self::Item> {
@@ -124,7 +126,7 @@ where StateKey: Copy + fmt::Debug {
 }
 
 // TODO: Make method of `Parse`?
-fn attempt_parse_lexeme_to_token<TokenType, StateKey>(lexeme: Lexeme, next_chr: Option<char>, final_state: &State<TokenType, StateKey>) -> Result<GenericToken<TokenType>, Failure>
+fn attempt_parse_lexeme_to_token<TokenType, StateKey>(lexeme: Lexeme, next_chr: Option<char>, final_state: &State<TokenType, StateKey>) -> Result<GenericToken<TokenType>>
 where TokenType: fmt::Debug + Clone {
     match final_state.parse.lexeme_string_to_token_type::<StateKey>(&lexeme.text) {
         Some(tok_type) => {

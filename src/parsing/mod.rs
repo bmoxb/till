@@ -1,6 +1,31 @@
 pub mod parser;
 
+use std::{ iter, fmt };
+use crate::lexing::lexer;
 use crate::stream;
+
+/// Represents the two types of syntax errors: the encountering of an unexpected
+/// token, and the encountering of the end of the token stream when it is not
+/// expected.
+#[derive(Debug, PartialEq)]
+pub enum Failure {
+    UnexpectedToken(lexer::Token, &'static str),
+    UnexpectedStreamEnd(&'static str),
+    UnexpectedIndent { expected_indent: usize, encountered_indent: usize }
+}
+
+impl fmt::Display for Failure {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Failure::UnexpectedToken(tok, expected) => write!(f, "Expected {} yet encountered unexpected {}", expected, tok),
+            Failure::UnexpectedStreamEnd(expected) => write!(f, "Encountered the end of the token stream yet expected {}", expected),
+            Failure::UnexpectedIndent { expected_indent, encountered_indent } =>
+                write!(f, "Encountered an unexpected change in indentation from the expected level of {} to an indentation level of {} tabs", expected_indent, encountered_indent)
+        }
+    }
+}
+
+type Result<T> = std::result::Result<T, Failure>;
 
 #[derive(Debug, PartialEq)]
 pub enum Statement {

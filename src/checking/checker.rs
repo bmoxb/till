@@ -1,7 +1,7 @@
 use crate::parsing;
 use std::fmt;
 
-pub fn input<T: Iterator<Item=parsing::Statement>>(stmts: T) -> Vec<Result<parsing::Statement, super::Failure>> {
+pub fn input<T: Iterator<Item=parsing::Statement>>(stmts: T) -> Vec<super::Result<parsing::Statement>> {
     Checker::new(stmts).collect() // Collected so that checking happens immediately.
 }
 
@@ -11,7 +11,7 @@ pub struct Checker<T: Iterator<Item=parsing::Statement>> {
 }
 
 impl<T: Iterator<Item=parsing::Statement>> Iterator for Checker<T> {
-    type Item = Result<parsing::Statement, super::Failure>;
+    type Item = super::Result<parsing::Statement>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.stmts.next() {
@@ -43,7 +43,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
 
     /// Check the validity of a given statement. May return a type in the case of
     /// the statement being a return statement.
-    fn check_stmt(&mut self, stmt: &parsing::Statement) -> Result<Option<super::Type>, super::Failure> {
+    fn check_stmt(&mut self, stmt: &parsing::Statement) -> super::Result<Option<super::Type>> {
         match stmt {
             parsing::Statement::Return(Some(expr)) => Ok(Some(self.check_expr(expr)?)),
             parsing::Statement::Return(None) => Ok(None),
@@ -74,7 +74,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
     /// a return statement be encountered, the type of the returned expression
     /// is returned within `Ok(Some(...))`. If there are multiple return statements,
     /// then it will be ensured that they are all returning the same type.
-    fn check_block(&mut self, block: &parsing::Block) -> Result<Option<super::Type>, super::Failure> {
+    fn check_block(&mut self, block: &parsing::Block) -> super::Result<Option<super::Type>> {
         let mut ret_type = None;
 
         self.begin_new_scope();
@@ -114,7 +114,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
 
     /// Search the current accessible scopes for the variable definition with
     /// the given identifier.
-    fn variable_lookup(&self, ident: &str) -> Result<&VariableDef, super::Failure> {
+    fn variable_lookup(&self, ident: &str) -> super::Result<&VariableDef> {
         // Reverse the iterator so that the inner most scope has priority (i.e.
         // automatically handle shadowing).
         for scope in self.scope_stack.iter().rev() {
@@ -133,7 +133,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         })
     }
 
-    fn function_lookup(&self, ident: &str, params: &[super::Type]) -> Result<&FunctionDef, super::Failure> {
+    fn function_lookup(&self, ident: &str, params: &[super::Type]) -> super::Result<&FunctionDef> {
         for scope in self.scope_stack.iter().rev() {
             if let Some(func_def) = scope.find_function_def(ident, params) {
                 return Ok(func_def)
@@ -150,7 +150,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         })
     }
 
-    fn check_expr(&self, expr: &parsing::Expression) -> Result<super::Type, super::Failure> {
+    fn check_expr(&self, expr: &parsing::Expression) -> super::Result<super::Type> {
         match expr {
             parsing::Expression::Variable { pos: _, identifier } => {
                 log::trace!("Searching scope for the type of referenced variable with identifier '{}'", identifier);
@@ -250,7 +250,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         }
     }
 
-    fn expect_expr_type(&self, expr: &parsing::Expression, expected: super::Type) -> Result<(), super::Failure> {
+    fn expect_expr_type(&self, expr: &parsing::Expression, expected: super::Type) -> super::Result<()> {
         let expr_type = self.check_expr(expr)?;
         
         if expr_type == expected { Ok(()) }

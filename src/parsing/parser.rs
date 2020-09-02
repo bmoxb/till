@@ -7,33 +7,12 @@ pub fn input<T: Iterator<Item=lexer::Token>>(tokens: T) -> StatementStream<T> {
     StatementStream { tokens: tokens.peekable() }
 }
 
-/// Represents the two types of syntax errors: the encountering of an unexpected
-/// token, and the encountering of the end of the token stream when it is not
-/// expected.
-#[derive(Debug, PartialEq)]
-pub enum Failure {
-    UnexpectedToken(lexer::Token, &'static str),
-    UnexpectedStreamEnd(&'static str),
-    UnexpectedIndent { expected_indent: usize, encountered_indent: usize }
-}
-
-impl fmt::Display for Failure {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Failure::UnexpectedToken(tok, expected) => write!(f, "Expected {} yet encountered unexpected {}", expected, tok),
-            Failure::UnexpectedStreamEnd(expected) => write!(f, "Encountered the end of the token stream yet expected {}", expected),
-            Failure::UnexpectedIndent { expected_indent, encountered_indent } =>
-                write!(f, "Encountered an unexpected change in indentation from the expected level of {} to an indentation level of {} tabs", expected_indent, encountered_indent)
-        }
-    }
-}
-
 pub struct StatementStream<T: Iterator<Item=lexer::Token>> {
     tokens: iter::Peekable<T>
 }
 
 impl<T: Iterator<Item=lexer::Token>> Iterator for StatementStream<T> {
-    type Item = Result<super::Statement, Failure>;
+    type Item = super::Result<super::Statement>;
 
     /// Return the next AST statement parsed from the given token stream.
     /// Returns None in the case of the token stream having reached its end.
@@ -66,52 +45,52 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
 
     /// Will see what token is next without advancing the position in the token
     /// stream. Will error if the end of the token stream is reached.
-    fn peek_token(&mut self, failure_msg: &'static str) -> Result<&lexer::Token, Failure> {
+    fn peek_token(&mut self, failure_msg: &'static str) -> super::Result<&lexer::Token> {
         // Could use Result::ok_or but want to log tokens as accessed by the parser.
         match self.tokens.peek() {
             Some(tok) => {
                 log::trace!("Peeked token: {:?}", tok);
                 Ok(tok)
             }
-            None => Err(Failure::UnexpectedStreamEnd(failure_msg))
+            None => Err(super::Failure::UnexpectedStreamEnd(failure_msg))
         }
     }
 
     /// Take the next token and advance the position in the token stream. Will
     /// error if the end of the token stream is reached.
-    fn consume_token(&mut self, failure_msg: &'static str) -> Result<lexer::Token, Failure> {
+    fn consume_token(&mut self, failure_msg: &'static str) -> super::Result<lexer::Token> {
         match self.tokens.next() {
             Some(tok) => {
                 log::trace!("Consumed token: {:?}", tok);
                 Ok(tok)
             }
-            None => Err(Failure::UnexpectedStreamEnd(failure_msg))
+            None => Err(super::Failure::UnexpectedStreamEnd(failure_msg))
         }
     }
 
     /// Will consume a token, returning said token if it is of the specified
     /// token type. If it is not of that type or if the end of the token stream
     /// is reached, an error will be returned.
-    fn consume_token_of_expected_type(&mut self, required_type: &lexer::TokenType, failure_msg: &'static str) -> Result<lexer::Token, Failure> {
+    fn consume_token_of_expected_type(&mut self, required_type: &lexer::TokenType, failure_msg: &'static str) -> super::Result<lexer::Token> {
         let tok = self.consume_token(failure_msg)?;
 
         if tok.tok_type == *required_type {
             log::trace!("Token is of expected type: {:?}", required_type);
             Ok(tok)
         }
-        else { Err(Failure::UnexpectedToken(tok, failure_msg)) }
+        else { Err(super::Failure::UnexpectedToken(tok, failure_msg)) }
     }
 
     /// Peek the next token and compare its type with that specified. Will error
     /// if the token stream end is reached.
-    fn check_type_of_peeked_token(&mut self, required_type: &lexer::TokenType, failure_msg: &'static str) -> Result<bool, Failure> {
+    fn check_type_of_peeked_token(&mut self, required_type: &lexer::TokenType, failure_msg: &'static str) -> super::Result<bool> {
         Ok(self.peek_token(failure_msg)?.tok_type == *required_type)
     }
 
     /// Will consume the next token in the stream  if it is of the type specified.
     /// Otherwise, the stream position is not advanced and nothing is returned.
     /// Will error if the end of the token stream is reached.
-    fn consume_token_if_type(&mut self, required_type: &lexer::TokenType, failure_msg: &'static str) -> Result<Option<lexer::Token>, Failure> {
+    fn consume_token_if_type(&mut self, required_type: &lexer::TokenType, failure_msg: &'static str) -> super::Result<Option<lexer::Token>> {
         if self.check_type_of_peeked_token(required_type, failure_msg)? {
             log::trace!("Token consumed based on type: {:?}", required_type);
             Ok(Some(self.consume_token(failure_msg)?))
@@ -122,7 +101,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     /// Parse a TILL statement.
     ///
     /// `<stmt> ::= <if> | <while> | <function> | <declaration> | <assignment> | <return>`
-    fn statement(&mut self, current_indent: usize, stmt_type_name: &'static str) -> Result<super::Statement, Failure> {
+    fn statement(&mut self, current_indent: usize, stmt_type_name: &'static str) -> super::Result<super::Statement> {
         log::trace!("Parsing statement...");
 
         let coming_tok = self.peek_token("statement")?;
@@ -144,7 +123,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
                 else if self.check_type_of_peeked_token(&lexer::TokenType::Equals, "statement")? {
                     self.assignment_stmt(identifier)
                 }
-                else { Err(Failure::UnexpectedToken(self.consume_token("statement")?, "statement")) }
+                else { Err(super::Failure::UnexpectedToken(self.consume_token("statement")?, "statement")) }
             }
 
             // Variable declaration:
@@ -154,14 +133,14 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
             // Return:
             lexer::TokenType::ReturnKeyword => self.return_stmt(),
 
-            _ => Err(Failure::UnexpectedToken(self.consume_token("statement")?, stmt_type_name))
+            _ => Err(super::Failure::UnexpectedToken(self.consume_token("statement")?, stmt_type_name))
         }
     }
 
     /// Parse an if statement.
     ///
     /// `<if> ::= "if" <expr> <block>`
-    fn if_stmt(&mut self, current_indent: usize) -> Result<super::Statement, Failure> {
+    fn if_stmt(&mut self, current_indent: usize) -> super::Result<super::Statement> {
         // Consume the if keyword token:
         self.consume_token_of_expected_type(&lexer::TokenType::IfKeyword, "if keyword")?;
 
@@ -174,7 +153,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     /// Parse a while loop statement.
     ///
     /// `<while> ::= "while" <expr> <block>`
-    fn while_stmt(&mut self, current_indent: usize) -> Result<super::Statement, Failure> {
+    fn while_stmt(&mut self, current_indent: usize) -> super::Result<super::Statement> {
         self.consume_token_of_expected_type(&lexer::TokenType::WhileKeyword, "while keyword")?;
 
         Ok(super::Statement::While {
@@ -187,7 +166,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     /// assumed to have already have been consumed.
     ///
     /// `<function> ::= identifier "(" (<param> ("," <param>)*)? ")" ("->" <type>)? <block>`
-    fn define_function_stmt(&mut self, current_indent: usize, identifier: String) -> Result<super::Statement, Failure> {
+    fn define_function_stmt(&mut self, current_indent: usize, identifier: String) -> super::Result<super::Statement> {
         self.consume_token_of_expected_type(&lexer::TokenType::BracketOpen, "open bracket ( token")?;
 
         let mut parameters = Vec::new();
@@ -220,7 +199,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     /// initial assignment value for that variable.
     ///
     /// `<declaration> ::= <type> identifier ("=" <expr>)?`
-    fn variable_declaration_stmt(&mut self) -> Result<super::Statement, Failure> {
+    fn variable_declaration_stmt(&mut self) -> super::Result<super::Statement> {
         let var_type = self.parse_type()?;
         
         let identifier_tok = self.consume_token("variable identifier")?;
@@ -240,7 +219,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     /// passed to this method.
     ///
     /// `<assignment> ::= identifier "=" <expr>`
-    fn assignment_stmt(&mut self, identifier: String) -> Result<super::Statement, Failure> {
+    fn assignment_stmt(&mut self, identifier: String) -> super::Result<super::Statement> {
         self.consume_token_of_expected_type(&lexer::TokenType::Equals, "equals = after identifier")?;
 
         Ok(super::Statement::VariableAssignment {
@@ -252,14 +231,14 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     /// Parse a function return statement.
     ///
     /// `<return> ::= "return" <expr>?`
-    fn return_stmt(&mut self) -> Result<super::Statement, Failure> {
+    fn return_stmt(&mut self) -> super::Result<super::Statement> {
         self.consume_token_of_expected_type(&lexer::TokenType::ReturnKeyword, "return keyword")?;
 
         Ok(super::Statement::Return(self.expression().ok()))
     }
 
     /// `<type> ::= typeidentifier | "[" <type> "]"`
-    fn parse_type(&mut self) -> Result<super::Type, Failure> {
+    fn parse_type(&mut self) -> super::Result<super::Type> {
         let tok = self.consume_token("type")?;
         
         match tok.tok_type {
@@ -276,12 +255,12 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
                 identifier
             }),
 
-            _ => Err(Failure::UnexpectedToken(tok, "type"))
+            _ => Err(super::Failure::UnexpectedToken(tok, "type"))
         }
     }
 
     /// `<param> ::= <type> identifier`
-    fn parse_parameter(&mut self) -> Result<super::Parameter, Failure> {
+    fn parse_parameter(&mut self) -> super::Result<super::Parameter> {
         let param_type = self.parse_type()?;
         
         let identifier_tok = self.consume_token("function parameter identifier")?;
@@ -297,7 +276,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     /// level).
     ///
     /// `<block> ::= newlines indentincr <chunk> indentdecr`
-    fn block(&mut self, indent_before_block: usize) -> Result<super::Block, Failure> {
+    fn block(&mut self, indent_before_block: usize) -> super::Result<super::Block> {
         let block_indent = indent_before_block + 1;
         
         self.consume_token_of_expected_type(&lexer::TokenType::Newline(block_indent), "increase indent for start of block")?; // TODO: unexpected indent error?
@@ -311,7 +290,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     /// given indentation level).
     ///
     /// `<chunk> ::= (<stmt> newlines)* <stmt>`
-    fn block_stmts(&mut self, block_indent: usize) -> Result<Vec<super::Statement>, Failure> {
+    fn block_stmts(&mut self, block_indent: usize) -> super::Result<Vec<super::Statement>> {
         let mut stmts = Vec::new();
 
         loop {
@@ -333,14 +312,14 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
                     }
                     else {
                         log::info!("Indent has unexpectedly increased to {} so returning Failure", indent);
-                        return Err(Failure::UnexpectedIndent {
+                        return Err(super::Failure::UnexpectedIndent {
                             expected_indent: block_indent,
                             encountered_indent: *indent
                         });
                     }
                 }
 
-                Ok(_) | Err(Failure::UnexpectedStreamEnd(_)) => {
+                Ok(_) | Err(super::Failure::UnexpectedStreamEnd(_)) => {
                     log::info!("Stream ended during block so assuming this is the end of said block");
                     break;
                 }
@@ -356,9 +335,9 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     /// expressions has a lot of very similar patterns (see 'expr', 'comparison',
     /// 'multiplcation', etc. in grammar file). This method is present to reduce
     /// the amount of repeated code required.
-    fn left_right_expr(&mut self, sub_expr_func: fn(&mut Self) -> Result<super::Expression, Failure>,
+    fn left_right_expr(&mut self, sub_expr_func: fn(&mut Self) -> super::Result<super::Expression>,
     seperators: &[(lexer::TokenType, fn(Box<super::Expression>, Box<super::Expression>) -> super::Expression)])
-    -> Result<super::Expression, Failure> {
+    -> super::Result<super::Expression> {
         let mut expr = sub_expr_func(self);
         
         for (seperating_tok_type, make_expr_func) in seperators {
@@ -377,7 +356,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     /// at its end or if an expected token is encountered.
     ///
     /// `<expr> ::= <comparison> ("==" <comparison>)*`
-    fn expression(&mut self) -> Result<super::Expression, Failure> {
+    fn expression(&mut self) -> super::Result<super::Expression> {
         log::trace!("Parsing expression...");
 
         self.left_right_expr(
@@ -387,7 +366,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     }
 
     /// `<comparison> ::= <addition> (("<"|">") <addition>)*`
-    fn comparison_expr(&mut self) -> Result<super::Expression, Failure> {
+    fn comparison_expr(&mut self) -> super::Result<super::Expression> {
         self.left_right_expr(
             Self::addition_expr,
             &[
@@ -400,7 +379,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     }
 
     /// `<addition> ::= <multiplication> (("+"|"-") <multiplication>)*`
-    fn addition_expr(&mut self) -> Result<super::Expression, Failure> {
+    fn addition_expr(&mut self) -> super::Result<super::Expression> {
         self.left_right_expr(
             Self::multiplication_expr,
             &[
@@ -413,7 +392,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     }
 
     /// `<multiplication> ::= <unary> (("*"|"/") <unary>)*`
-    fn multiplication_expr(&mut self) -> Result<super::Expression, Failure> {
+    fn multiplication_expr(&mut self) -> super::Result<super::Expression> {
         self.left_right_expr(
             Self::unary_expr,
             &[
@@ -426,7 +405,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     }
 
     /// `<unary> ::= ("!"|"~") <unary> | <primary>`
-    fn unary_expr(&mut self) -> Result<super::Expression, Failure> {
+    fn unary_expr(&mut self) -> super::Result<super::Expression> {
         if self.consume_token_if_type(&lexer::TokenType::Tilde, "unary expression")?.is_some() {
             Ok(super::Expression::UnaryMinus(Box::new(self.expression()?)))
         }
@@ -444,7 +423,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     ///             | "[" <exprs>? "]" | "(" <expr> ")"
     ///             | identifier ("(" <exprs>? ")")?
     /// ```
-    fn primary_expr(&mut self) -> Result<super::Expression, Failure> {
+    fn primary_expr(&mut self) -> super::Result<super::Expression> {
         let tok = self.consume_token("primary expression")?;
 
         log::trace!("Primary expression token: {}", tok);
@@ -499,12 +478,12 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
             lexer::TokenType::TrueKeyword => Ok(super::Expression::BooleanLiteral { value: true, pos: tok.lexeme.pos }),
             lexer::TokenType::FalseKeyword => Ok(super::Expression::BooleanLiteral { value: false, pos: tok.lexeme.pos }),
 
-            _ => Err(Failure::UnexpectedToken(tok, "primary expression"))
+            _ => Err(super::Failure::UnexpectedToken(tok, "primary expression"))
         }
     }
 
     /// `<exprs> ::= <expr> ("," <expr>)*`
-    fn expressions(&mut self) -> Result<Vec<super::Expression>, Failure> {
+    fn expressions(&mut self) -> super::Result<Vec<super::Expression>> {
         let mut exprs = vec![self.expression()?];
 
         // Consume the comma tokens seperating expressions (ignore result as end
@@ -517,10 +496,10 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     }
 }
 
-fn extract_string_from_identifier_token(tok: lexer::Token, msg: &'static str) -> Result<String, Failure> {
+fn extract_string_from_identifier_token(tok: lexer::Token, msg: &'static str) -> super::Result<String> {
     match tok.tok_type {
         lexer::TokenType::Identifier(x) => Ok(x),
-        _ => Err(Failure::UnexpectedToken(tok, msg))
+        _ => Err(super::Failure::UnexpectedToken(tok, msg))
     }
 }
 
@@ -603,7 +582,7 @@ mod tests {
 
         assert_pattern!(quick_parse("[]").expression(), Ok(parsing::Expression::Array(_)));
         
-        assert_pattern!(quick_parse("[1, 2").primary_expr(), Err(super::Failure::UnexpectedStreamEnd(_)));
+        assert_pattern!(quick_parse("[1, 2").primary_expr(), Err(parsing::Failure::UnexpectedStreamEnd(_)));
     }
 
     #[test]
@@ -644,7 +623,7 @@ mod tests {
             _ => panic!()
         }
 
-        assert_pattern!(prsr.next().unwrap(), Err(super::Failure::UnexpectedStreamEnd(_)));
+        assert_pattern!(prsr.next().unwrap(), Err(parsing::Failure::UnexpectedStreamEnd(_)));
 
         assert!(prsr.next().is_none());
     }

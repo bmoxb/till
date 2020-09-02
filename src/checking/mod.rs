@@ -23,6 +23,8 @@ impl fmt::Display for Failure {
     }
 }
 
+type Result<T> = std::result::Result<T, Failure>;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Type {
     Array(Box<Type>),
@@ -30,7 +32,7 @@ pub enum Type {
 }
 
 impl Type {
-    fn from_parsing_type(ptype: &parsing::Type) -> Result<Type, Failure> {
+    fn from_parsing_type(ptype: &parsing::Type) -> Result<Type> {
         match ptype {
             parsing::Type::Identifier { pos: _, identifier } => {
                 match identifier.as_str() {
