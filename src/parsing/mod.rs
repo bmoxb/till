@@ -1,6 +1,6 @@
 pub mod parser;
 
-use std::{ iter, fmt };
+use std::fmt;
 use crate::lexing::lexer;
 use crate::stream;
 

@@ -1,5 +1,5 @@
 use crate::lexing::lexer;
-use std::{ iter, fmt };
+use std::iter;
 
 /// Returns an iterator that yields abstract syntax representations for each
 /// TILL statement parsed from the given token stream.
