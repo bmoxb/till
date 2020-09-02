@@ -66,6 +66,20 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                 Ok(None)
             }
 
+            parsing::Statement::VariableAssignment { identifier, assign_to } => {
+                let var_def = self.variable_lookup(identifier)?;
+                let assign_to_type = self.check_expr(assign_to)?;
+
+                if var_def.var_type != assign_to_type {
+                    return Err(super::Failure::UnexpectedType {
+                        encountered: assign_to_type,
+                        expected: var_def.var_type.clone()
+                    });
+                }
+
+                Ok(None)
+            }
+
             _ => unimplemented!()
         }
     }
@@ -543,6 +557,7 @@ mod tests {
             }),
             Ok(None)
         );
+        assert!(chkr.variable_lookup("pi").is_ok());
 
         assert_eq!(
             chkr.check_stmt(&parsing::Statement::VariableDeclaration {
@@ -563,6 +578,25 @@ mod tests {
                 value: None
             }),
             Err(checking::Failure::NonexistentPrimitiveType("Oops".to_string()))
+        );
+
+        assert_eq!(
+            chkr.check_stmt(&parsing::Statement::VariableAssignment {
+                identifier: "pi".to_string(),
+                assign_to: parsing::Expression::NumberLiteral { pos: Position::new(), value: 3.1 }
+            }),
+            Ok(None)
+        );
+
+        assert_eq!(
+            chkr.check_stmt(&parsing::Statement::VariableAssignment {
+                identifier: "pi".to_string(),
+                assign_to: parsing::Expression::BooleanLiteral { pos: Position::new(), value: true }
+            }),
+            Err(checking::Failure::UnexpectedType {
+                expected: checking::Type::Num,
+                encountered: checking::Type::Bool
+            })
         );
     }
 }
