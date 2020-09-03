@@ -33,6 +33,10 @@ impl fmt::Display for Failure {
 
 type Result<T> = std::result::Result<T, Failure>;
 
+/// Represents the types available in till. `Char`, `Num`, and `Bool` are
+/// self-explanatory primitive types, `Array` is a type indiciating a collection
+/// of elements of a given type, `Any` will match with any primitive type but
+/// not with an array type.
 #[derive(Clone, Debug)]
 pub enum Type {
     Array(Box<Type>),
@@ -78,4 +82,105 @@ impl cmp::PartialEq for Type {
             _ => mem::discriminant(self) == mem::discriminant(other)
         }
     }
+}
+
+/// The final immediate representation of a till program before it is converted
+/// into machine code.
+struct ProgramRepresentation {
+    /// The primitive, assembly-like instructions that make up the input program.
+    instructions: Vec<Instruction>,
+    /// Contains all scopes of the program. This vector should only ever be added
+    /// to. The relationship between scopes is only considered during the checking
+    /// stage and so is not included as part of the final immediate representation.
+    scopes: Vec<Scope>
+}
+
+impl ProgramRepresentation {
+    fn new() -> Self {
+        ProgramRepresentation {
+            instructions: Vec::new(), scopes: Vec::new()
+        }
+    }
+
+    fn create_scope(&mut self) -> usize {
+        self.scopes.push(Scope { 
+            variable_defs: Vec::new(),
+            function_defs: Vec::new()
+        });
+        self.scopes.len() - 1
+    }
+}
+
+struct Scope {
+    variable_defs: Vec<VariableDef>,
+    function_defs: Vec<FunctionDef>
+}
+
+/// Represents a scope within a till program. A new scope is created in the body
+/// of a function definition, if statement, or while statement. Any variables
+/// or functions declared in a given scope will only be accessible from within
+/// that scope or from a scope nested in it.
+impl Scope {
+    fn find_variable_def(&self, ident: &str) -> Option<&VariableDef> {
+        for def in &self.variable_defs {
+            if def.identifier == ident { return Some(def) }
+        }
+        None
+    }
+
+    fn find_function_def(&self, ident: &str, params: &[Type]) -> Option<&FunctionDef> {
+        for def in &self.function_defs {
+            if def.identifier == ident && def.parameter_types.as_slice() == params {
+                return Some(def)
+            }
+        }
+        None
+    }
+}
+
+/// Definition of a variable with a given identifier and type.
+#[derive(Debug, PartialEq)]
+struct VariableDef {
+    identifier: String,
+    var_type: Type
+}
+
+impl VariableDef {
+    fn new(ident: &str, var_type: Type) -> Self {
+        VariableDef {
+            identifier: ident.to_string(),
+            var_type
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+struct FunctionDef {
+    identifier: String,
+    parameter_types: Vec<Type>,
+    return_type: Option<Type>
+}
+
+#[derive(Debug, PartialEq)]
+enum Value {
+    Variable { scope: usize, identifier: String },
+    Constant(ConstValue)
+}
+
+#[derive(Debug, PartialEq)]
+enum ConstValue {
+    Num(f64), Char(char), Bool(bool), Array(Vec<ConstValue>)
+}
+
+enum Instruction {
+    Push(Value), // Push value at specified
+    Pop(Value), // Pop value into specified
+    Equals(Value), // Compare top of stack with specified
+    Add(Value), // Pop top of stack, add to specified, push result
+    Subtract(Value), // Pop top of stack, subtract from specified, push result
+    Multiply(Value), // Pop top of stack, multiply with specified, push result
+    Divide(Value), // Pop top of stack, divide by specified, push result
+    Not, // Pop top of stack, if 0 then push 1, else push 0
+    Call(Value), // Jump to specified, return here when Instruction::Return encountered
+    Return // Return from call
 }

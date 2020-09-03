@@ -1,14 +1,26 @@
 use crate::parsing;
 
 pub fn input<T: Iterator<Item=parsing::Statement>>(stmts: T) -> Checker<T> {
-    let mut this = Checker { stmts: stmts, scope_stack: Vec::new() };
+    let mut this = Checker {
+        stmts: stmts,
+        final_ir: super::ProgramRepresentation::new(),
+        scope_index_stack: Vec::new()
+    };
     this.begin_new_scope();
     this
 }
 
+/// Performs scoping and type checking on a stream of parsed statements. Yields
+/// a final lower-level immediate representation of the input program.
 pub struct Checker<T: Iterator<Item=parsing::Statement>> {
+    /// Iterator of statements to be checked.
     stmts: T,
-    scope_stack: Vec<Scope>
+    /// The final program representation which is gradually constructed.
+    final_ir: super::ProgramRepresentation,
+    /// Stack of indexes to the program representation's scopes. Indexes at the
+    /// end of this vector are for the inner scopes. When a scope ends, it's index
+    /// is removed from this vector (but it remains a part of the IR).
+    scope_index_stack: Vec<usize>
 }
 
 impl<T: Iterator<Item=parsing::Statement>> Iterator for Checker<T> {
@@ -27,7 +39,7 @@ impl<T: Iterator<Item=parsing::Statement>> Iterator for Checker<T> {
                 log::info!("Reached end of statement stream - ending program scope");
 
                 self.end_scope();
-                assert!(self.scope_stack.is_empty());
+                assert!(self.scope_index_stack.is_empty());
 
                 None
             }
@@ -73,7 +85,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                 else {
                     log::trace!("Introducing variable '{}' to current scope", identifier);
 
-                    self.introduce_variable(identifier, checking_type);
+                    self.introduce_variable_to_inner_scope(super::VariableDef::new(identifier, checking_type));
                 }
 
                 Ok(None)
@@ -96,7 +108,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
             parsing::Statement::FunctionDefinition { identifier, parameters, return_type, body } => {
                 let mut param_var_defs = Vec::new();
                  for param in parameters {
-                    param_var_defs.push(VariableDef {
+                    param_var_defs.push(super::VariableDef {
                         var_type: super::Type::from_parsing_type(&param.param_type)?,
                         identifier: param.identifier.to_string()
                     });
@@ -160,12 +172,12 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
     /// a return statement be encountered, the type of the returned expression
     /// is returned within `Ok(Some(...))`. If there are multiple return statements,
     /// then it will be ensured that they are all returning the same type.
-    fn check_block(&mut self, block: &parsing::Block, var_defs: Vec<VariableDef>) -> super::Result<Option<super::Type>> {
+    fn check_block(&mut self, block: &parsing::Block, var_defs: Vec<super::VariableDef>) -> super::Result<Option<super::Type>> {
         let mut ret_type = None;
 
         self.begin_new_scope();
 
-        for var_def in var_defs { self.get_inner_scope().variable_defs.push(var_def) }
+        for var_def in var_defs { self.introduce_variable_to_inner_scope(var_def) }
 
         for stmt in block {
             if let Some(new) = self.check_stmt(stmt)? {
@@ -188,24 +200,27 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
     }
 
     fn begin_new_scope(&mut self) {
-        self.scope_stack.push(Scope { 
-            variable_defs: Vec::new(),
-            function_defs: Vec::new()
-        });
+        let index = self.final_ir.create_scope();
+        self.scope_index_stack.push(index);
     }
 
     fn end_scope(&mut self) {
-        self.scope_stack.pop();
+        self.scope_index_stack.pop();
     }
 
-    fn get_inner_scope(&mut self) -> &mut Scope { self.scope_stack.last_mut().unwrap() }
+    fn get_inner_scope(&mut self) -> &mut super::Scope {
+        let index = self.scope_index_stack.last().unwrap();
+        &mut self.final_ir.scopes[*index]
+    }
 
     /// Search the current accessible scopes for the variable definition with
     /// the given identifier.
-    fn variable_lookup(&self, ident: &str) -> super::Result<&VariableDef> {
+    fn variable_lookup(&self, ident: &str) -> super::Result<&super::VariableDef> {
         // Reverse the iterator so that the inner most scope has priority (i.e.
         // automatically handle shadowing).
-        for scope in self.scope_stack.iter().rev() {
+        for scope_index in self.scope_index_stack.iter().rev() {
+            let scope = &self.final_ir.scopes[*scope_index];
+    
             if let Some(var_def) = scope.find_variable_def(ident) {
                 return Ok(var_def)
             }
@@ -214,15 +229,14 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
     }
 
     /// Introduce a new variable into the current inner most scope.
-    fn introduce_variable(&mut self, ident: &str, var_type: super::Type) {
-        self.get_inner_scope().variable_defs.push(VariableDef {
-            identifier: ident.to_string(),
-            var_type
-        })
+    fn introduce_variable_to_inner_scope(&mut self, var_def: super::VariableDef) {
+        self.get_inner_scope().variable_defs.push(var_def)
     }
 
-    fn function_lookup(&self, ident: &str, params: &[super::Type]) -> super::Result<&FunctionDef> {
-        for scope in self.scope_stack.iter().rev() {
+    fn function_lookup(&self, ident: &str, params: &[super::Type]) -> super::Result<&super::FunctionDef> {
+        for scope_index in self.scope_index_stack.iter().rev() {
+            let scope = &self.final_ir.scopes[*scope_index]; // TODO: Make helper function for reverse iterating scopes on stack.
+
             if let Some(func_def) = scope.find_function_def(ident, params) {
                 return Ok(func_def)
             }
@@ -231,7 +245,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
     }
 
     fn introduce_function(&mut self, ident: &str, params: &[super::Type], return_type: Option<super::Type>) {
-        self.get_inner_scope().function_defs.push(FunctionDef {
+        self.get_inner_scope().function_defs.push(super::FunctionDef {
             identifier: ident.to_string(),
             parameter_types: params.to_vec(),
             return_type
@@ -346,41 +360,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
     }
 }
 
-struct Scope {
-    variable_defs: Vec<VariableDef>,
-    function_defs: Vec<FunctionDef>
-}
 
-impl Scope {
-    fn find_variable_def(&self, ident: &str) -> Option<&VariableDef> {
-        for def in &self.variable_defs {
-            if def.identifier == ident { return Some(def) }
-        }
-        None
-    }
-
-    fn find_function_def(&self, ident: &str, params: &[super::Type]) -> Option<&FunctionDef> {
-        for def in &self.function_defs {
-            if def.identifier == ident && def.parameter_types.as_slice() == params {
-                return Some(def)
-            }
-        }
-        None
-    }
-}
-
-#[derive(Debug, PartialEq)]
-struct VariableDef {
-    identifier: String,
-    var_type: super::Type
-}
-
-#[derive(Debug, PartialEq)]
-struct FunctionDef {
-    identifier: String,
-    parameter_types: Vec<super::Type>,
-    return_type: Option<super::Type>
-}
 
 #[cfg(test)]
 mod tests {
@@ -393,15 +373,15 @@ mod tests {
     fn scoping() {
         let mut chkr = new_empty_checker();
 
-        chkr.introduce_variable("outer", checking::Type::Num);
-        assert_eq!(chkr.variable_lookup("outer"), Ok(&super::VariableDef {
+        chkr.introduce_variable_to_inner_scope(checking::VariableDef::new("outer", checking::Type::Num));
+        assert_eq!(chkr.variable_lookup("outer"), Ok(&checking::VariableDef {
             identifier: "outer".to_string(),
             var_type: checking::Type::Num
         }));
 
         chkr.begin_new_scope();
 
-        chkr.introduce_variable("inner", checking::Type::Bool);
+        chkr.introduce_variable_to_inner_scope(checking::VariableDef::new("inner", checking::Type::Bool));
 
         assert!(chkr.variable_lookup("inner").is_ok());
         assert!(chkr.variable_lookup("outer").is_ok());
@@ -414,7 +394,7 @@ mod tests {
 
         chkr.introduce_function("xyz", &[checking::Type::Char], Some(checking::Type::Num));
         
-        assert_eq!(chkr.function_lookup("xyz", &[checking::Type::Char]), Ok(&super::FunctionDef {
+        assert_eq!(chkr.function_lookup("xyz", &[checking::Type::Char]), Ok(&checking::FunctionDef {
             identifier: "xyz".to_string(),
             parameter_types: vec![checking::Type::Char],
             return_type: Some(checking::Type::Num)
@@ -531,7 +511,7 @@ mod tests {
             Err(checking::Failure::VariableNotInScope("undefined".to_string()))
         );
 
-        chkr.introduce_variable("var", checking::Type::Num);
+        chkr.introduce_variable_to_inner_scope(checking::VariableDef::new("var", checking::Type::Num));
 
         chkr.begin_new_scope();
         assert_eq!(
