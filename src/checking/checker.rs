@@ -116,8 +116,6 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                     if let Some(parsing_return_type) = return_type {
                         let expected_return_type = super::Type::from_parsing_type(parsing_return_type)?;
 
-                        // TODO: Introduce function parameters into body block!
-
                         // Function body should return something if a return type
                         // has been specified in the signature:
                         if let Some(body_return_type) = optional_body_return_type {
@@ -315,9 +313,9 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
             }
 
             parsing::Expression::Array(exprs) => {
-                assert!(!exprs.is_empty()); // TODO: Handle empty array literal.
-
-                let contained_type = self.check_expr(&exprs[0])?;
+                let contained_type = 
+                    if exprs.is_empty() { super::Type::Any } // can't infer type of empty literal...
+                    else { self.check_expr(&exprs[0])? };
 
                 for expr in exprs {
                     let expr_type = self.check_expr(expr)?;
@@ -804,5 +802,51 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    #[test]
+    fn empty_array_literals() {
+        let mut chkr = new_empty_checker();
+
+        assert_eq!(
+            chkr.check_stmt(&parsing::Statement::VariableDeclaration {
+                identifier: "ok".to_string(),
+                var_type: parsing::Type::Array(Box::new(parsing::Type::Identifier {
+                    pos: Position::new(), identifier: "Num".to_string()
+                })),
+                value: Some(parsing::Expression::Array(vec![]))
+            }),
+            Ok(None)
+        );
+
+        assert_eq!(
+            chkr.check_stmt(&parsing::Statement::VariableDeclaration {
+                identifier: "bad".to_string(),
+                var_type: parsing::Type::Identifier { pos: Position::new(), identifier: "Bool".to_string() },
+                value: Some(parsing::Expression::Array(vec![]))
+            }),
+            Err(checking::Failure::UnexpectedType {
+                expected: checking::Type::Bool,
+                encountered: checking::Type::Array(Box::new(checking::Type::Any))
+            })
+        );
+
+        assert_eq!(
+            chkr.check_stmt(&parsing::Statement::VariableDeclaration {
+                identifier: "wow".to_string(),
+                var_type: parsing::Type::Array(Box::new(
+                    parsing::Type::Array(Box::new(
+                        parsing::Type::Identifier { pos: Position::new(), identifier: "Num".to_string() }
+                    ))
+                )),
+                value: Some(parsing::Expression::Array(vec![
+                    parsing::Expression::Array(vec![]),
+                    parsing::Expression::Array(vec![
+                        parsing::Expression::NumberLiteral { pos: Position::new(), value: 1.5 }
+                    ])
+                ]))
+            }),
+            Ok(None)
+        );
     }
 }

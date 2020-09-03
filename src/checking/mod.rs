@@ -1,5 +1,5 @@
 pub mod checker;
-use std::fmt;
+use std::{ fmt, cmp, mem };
 use crate::parsing;
 
 #[derive(Debug, PartialEq)]
@@ -33,10 +33,11 @@ impl fmt::Display for Failure {
 
 type Result<T> = std::result::Result<T, Failure>;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum Type {
     Array(Box<Type>),
-    Char, Num, Bool
+    Char, Num, Bool,
+    Any
 }
 
 impl Type {
@@ -60,7 +61,21 @@ impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Type::Array(contained) => write!(f, "[{}]", contained),
+            Type::Any => write!(f, "???"),
             other => write!(f, "{:?}", other)
+        }
+    }
+}
+
+impl cmp::PartialEq for Type {
+    fn eq(&self, other: &Type) -> bool {
+        match (self, other) {
+            (Type::Array(left), Type::Array(right)) => *left == *right,
+            (Type::Array(_), _) => false,
+            (_, Type::Array(_)) => false,
+            (Type::Any, _) => true,
+            (_, Type::Any) => true,
+            _ => mem::discriminant(self) == mem::discriminant(other)
         }
     }
 }

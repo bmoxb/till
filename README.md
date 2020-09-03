@@ -12,10 +12,10 @@
   * [x] Implement the recursive-descent parser
     * [x] Parse all expression types
     * [x] Parse all statement types
-* [ ] Checker
-  * [ ] Perform type checking
+* [x] Checker
+  * [x] Perform type checking
     * [x] For expressions
-    * [ ] For statements
+    * [x] For statements
   * [x] Ensure scoping rules are met
 * [ ] Once it has been determined valid by the checker, execute the program
 * [ ] Provide appropriate debug logging at all stages
