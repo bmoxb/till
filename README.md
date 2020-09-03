@@ -1,4 +1,4 @@
-# TILL (Tiny Interpreted Lightweight Language)
+# Till
 
 ## Checklist
 
@@ -17,8 +17,10 @@
     * [x] For expressions
     * [x] For statements
   * [x] Ensure scoping rules are met
-* [ ] Once it has been determined valid by the checker, execute the program
+  * [ ] Produce a final immediate representation of the input program
+* [ ] Code generator
+  * [ ] Produce machine code using the final IR
+  * [ ] Write the machine code to an output file
 * [ ] Provide appropriate debug logging at all stages
 * [ ] Provide clear error messages to the user should their program be invalid
-* [ ] Have both a REPL and the support for pre-written scripts
 * [ ] Test extensively

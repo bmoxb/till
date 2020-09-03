@@ -1,0 +1,2 @@
+add1(Num x) -> Num
+	return x + 1

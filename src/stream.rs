@@ -26,6 +26,7 @@ pub struct Stream {
 }
 
 impl Stream {
+    #[allow(dead_code)]
     pub fn from_str(s: &str) -> Stream {
         Stream {
             char_stream: CharStream::from(s),
