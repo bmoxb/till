@@ -46,7 +46,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
             parsing::Statement::If { condition, block } |
             parsing::Statement::While { condition, block } => {
                 self.expect_expr_type(condition, super::Type::Bool)?;
-                Ok(self.check_block(block)?)
+                Ok(self.check_block(block, Vec::new())?)
             }
 
             parsing::Statement::VariableDeclaration { var_type, identifier, value } => {
@@ -94,9 +94,17 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
             }
 
             parsing::Statement::FunctionDefinition { identifier, parameters, return_type, body } => {
-                let param_types = parameters.iter().map(|param| {
-                    super::Type::from_parsing_type(&param.param_type)
-                }).collect::<super::Result<Vec<super::Type>>>()?;
+                let mut param_var_defs = Vec::new();
+                 for param in parameters {
+                    param_var_defs.push(VariableDef {
+                        var_type: super::Type::from_parsing_type(&param.param_type)?,
+                        identifier: param.identifier.to_string()
+                    });
+                }
+
+                let param_types: Vec<super::Type> = param_var_defs.iter().map(|x| x.var_type.clone()).collect();
+
+                let optional_body_return_type = self.check_block(body, param_var_defs)?;
 
                 // Is a function with the same identifier and type signature
                 // defined and accessible from this scope?
@@ -112,7 +120,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
 
                         // Function body should return something if a return type
                         // has been specified in the signature:
-                        if let Some(body_return_type) = self.check_block(body)? {
+                        if let Some(body_return_type) = optional_body_return_type {
                             // Are those types the same?
                             if body_return_type == expected_return_type {
                                 self.introduce_function(identifier, param_types.as_slice(), Some(body_return_type));
@@ -134,7 +142,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                     } // No return type specified in signature:
                     else {
                         // Does function body return something?
-                        if let Some(body_return_type) = self.check_block(body)? {
+                        if let Some(body_return_type) = optional_body_return_type {
                             Err(super::Failure::VoidFunctionReturnsValue(
                                 identifier.to_string(), param_types,
                                 body_return_type
@@ -154,10 +162,12 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
     /// a return statement be encountered, the type of the returned expression
     /// is returned within `Ok(Some(...))`. If there are multiple return statements,
     /// then it will be ensured that they are all returning the same type.
-    fn check_block(&mut self, block: &parsing::Block) -> super::Result<Option<super::Type>> {
+    fn check_block(&mut self, block: &parsing::Block, var_defs: Vec<VariableDef>) -> super::Result<Option<super::Type>> {
         let mut ret_type = None;
 
         self.begin_new_scope();
+
+        for var_def in var_defs { self.get_inner_scope().variable_defs.push(var_def) }
 
         for stmt in block {
             if let Some(new) = self.check_stmt(stmt)? {
@@ -726,6 +736,29 @@ mod tests {
             Err(checking::Failure::VoidFunctionReturnsValue(
                 "xyz".to_string(), vec![], checking::Type::Bool
             ))
+        );
+
+        assert_eq!(
+            chkr.check_stmt(&parsing::Statement::FunctionDefinition {
+                identifier: "useless_function".to_string(),
+                parameters: vec![
+                    parsing::Parameter {
+                        pos: Position::new(), identifier: "x".to_string(),
+                        param_type: parsing::Type::Identifier {
+                            pos: Position::new(), identifier: "Num".to_string()
+                        }
+                    }
+                ],
+                return_type: Some(parsing::Type::Identifier {
+                    pos: Position::new(), identifier: "Num".to_string()
+                }),
+                body: vec![
+                    parsing::Statement::Return(Some(parsing::Expression::Variable {
+                        pos: Position::new(), identifier: "x".to_string()
+                    }))
+                ]
+            }),
+            Ok(None)
         );
 
         Ok(())
