@@ -36,9 +36,11 @@ fn compile(relative_in: &str, relative_out: &str) {
 
             let tokens = lexing::lexer::input(strm).filter_map(|x| filter_map_func(x, "lexical"));
             let syntax_tree = parsing::parser::input(tokens).filter_map(|x| filter_map_func(x, "syntax"));
-            let final_ir = checking::checker::input(syntax_tree).filter_map(|x| filter_map_func(x, "semantic"));
-            
-            println!("{:#?}", final_ir.collect::<Vec<parsing::Statement>>()); // temp
+            let final_ir = checking::checker::input(syntax_tree);
+
+            println!("{:#?}", final_ir);
+            //let statements = checker.filter_map(|x| filter_map_func(x, "semantic"));
+            //println!("{:#?}", statements.collect::<Vec<parsing::Statement>>());
         }
         Err(e) => {
             match e.kind() {

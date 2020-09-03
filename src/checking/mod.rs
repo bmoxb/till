@@ -86,7 +86,8 @@ impl cmp::PartialEq for Type {
 
 /// The final immediate representation of a till program before it is converted
 /// into machine code.
-struct ProgramRepresentation {
+#[derive(Debug)]
+pub struct ProgramRepresentation {
     /// The primitive, assembly-like instructions that make up the input program.
     instructions: Vec<Instruction>,
     /// Contains all scopes of the program. This vector should only ever be added
@@ -111,6 +112,7 @@ impl ProgramRepresentation {
     }
 }
 
+#[derive(Debug)]
 struct Scope {
     variable_defs: Vec<VariableDef>,
     function_defs: Vec<FunctionDef>
@@ -172,6 +174,7 @@ enum ConstValue {
     Num(f64), Char(char), Bool(bool), Array(Vec<ConstValue>)
 }
 
+#[derive(Debug)]
 enum Instruction {
     Push(Value), // Push value at specified
     Pop(Value), // Pop value into specified

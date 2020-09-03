@@ -1,13 +1,11 @@
 use crate::parsing;
 
-pub fn input<T: Iterator<Item=parsing::Statement>>(stmts: T) -> Checker<T> {
-    let mut this = Checker {
+pub fn input<T: Iterator<Item=parsing::Statement>>(stmts: T) -> super::Result<super::ProgramRepresentation> {
+    Checker {
         stmts: stmts,
         final_ir: super::ProgramRepresentation::new(),
         scope_index_stack: Vec::new()
-    };
-    this.begin_new_scope();
-    this
+    }.execute()
 }
 
 /// Performs scoping and type checking on a stream of parsed statements. Yields
@@ -16,38 +14,32 @@ pub struct Checker<T: Iterator<Item=parsing::Statement>> {
     /// Iterator of statements to be checked.
     stmts: T,
     /// The final program representation which is gradually constructed.
-    final_ir: super::ProgramRepresentation,
+    pub final_ir: super::ProgramRepresentation,
     /// Stack of indexes to the program representation's scopes. Indexes at the
     /// end of this vector are for the inner scopes. When a scope ends, it's index
     /// is removed from this vector (but it remains a part of the IR).
     scope_index_stack: Vec<usize>
 }
 
-impl<T: Iterator<Item=parsing::Statement>> Iterator for Checker<T> {
-    type Item = super::Result<parsing::Statement>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.stmts.next() {
-            Some(stmt) => {
-                Some(match self.check_stmt(&stmt) {
-                    Err(e) => Err(e),
-                    Ok(_) => Ok(stmt)
-                })
-            }
-
-            None => {
-                log::info!("Reached end of statement stream - ending program scope");
-
-                self.end_scope();
-                assert!(self.scope_index_stack.is_empty());
-
-                None
-            }
-        }
-    }
-}
-
 impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
+    /// Perform scoping and type checking before yielding the final immediate
+    /// representation of the input program. This will consume the `Checker`
+    /// instance.
+    fn execute(mut self) -> super::Result<super::ProgramRepresentation> {
+        self.begin_new_scope();
+    
+        while let Some(stmt) = self.stmts.next() {
+            self.check_stmt(&stmt)?;
+        }
+
+        log::info!("Reached end of statement stream - ending program scope");
+
+        self.end_scope();
+        assert!(self.scope_index_stack.is_empty());
+
+        Ok(self.final_ir)
+    }
+
     /// Check the validity of a given statement. May return a type in the case of
     /// the statement being a return statement.
     fn check_stmt(&mut self, stmt: &parsing::Statement) -> super::Result<Option<super::Type>> {
