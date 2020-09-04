@@ -1,8 +1,12 @@
+//! Contains structures and enumerations that allow for the representation of
+//! a till abstract syntax tree. For the actual till parsing code, see submodule
+//! `parser`.
+
 pub mod parser;
 
-use std::fmt;
 use crate::lexing::lexer;
 use crate::stream;
+use std::fmt;
 
 /// Represents the two types of syntax errors: the encountering of an unexpected
 /// token, and the encountering of the end of the token stream when it is not
@@ -27,6 +31,8 @@ impl fmt::Display for Failure {
 
 type Result<T> = std::result::Result<T, Failure>;
 
+/// Represents a parsed till statement. An AST is comprised of a collection of
+/// `Statement` instances.
 #[derive(Debug, PartialEq)]
 pub enum Statement {
     If {
@@ -62,6 +68,7 @@ pub enum Statement {
 
 pub type Block = Vec<Statement>;
 
+/// Parameter for a function definition.
 #[derive(Debug, PartialEq)]
 pub struct Parameter {
     pub param_type: Type,
@@ -75,10 +82,10 @@ pub enum Type {
     Array(Box<Type>)
 }
 
+/// Represents a till expression.
 #[derive(Debug, PartialEq)]
 pub enum Expression {
     Equal(Box<Expression>, Box<Expression>),
-    //NotEqual(Box<Expression>, Box<Expression>),
     GreaterThan(Box<Expression>, Box<Expression>),
     LessThan(Box<Expression>, Box<Expression>),
     Add(Box<Expression>, Box<Expression>),

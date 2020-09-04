@@ -1,3 +1,6 @@
+//! Handle the parsing of a series of tokens into a collection of `Statement`
+//! instances.
+
 use crate::lexing::lexer;
 use std::iter;
 
@@ -15,7 +18,7 @@ impl<T: Iterator<Item=lexer::Token>> Iterator for StatementStream<T> {
     type Item = super::Result<super::Statement>;
 
     /// Return the next AST statement parsed from the given token stream.
-    /// Returns None in the case of the token stream having reached its end.
+    /// Returns `None` in the case of the token stream having reached its end.
     fn next(&mut self) -> Option<Self::Item> {
         log::info!("Attempting to parse next statement from token stream...");
 

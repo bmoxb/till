@@ -1,3 +1,6 @@
+//! Contains generic lexer state machine and token representation code (not
+//! specific to till lexing - see submodule `lexer` for that).
+
 pub mod lexer;
 
 use crate::stream;

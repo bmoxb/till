@@ -1,3 +1,5 @@
+//! Lexing code specific to the lexical analysis of the till language.
+
 use crate::stream;
 use std::{ fmt, collections::HashMap };
 
@@ -26,7 +28,7 @@ impl fmt::Display for Token {
 
 pub type TokenStream<'a> = super::GenericTokenStream<'a, TokenType, StateKey>;
 
-/// All lexing tokens yielded by the TILL lexer.
+/// All lexing tokens yielded by the till lexer.
 #[derive(Debug, PartialEq, Clone)]
 pub enum TokenType {
     Newline(usize), // Value is indentation level of the new line.
@@ -65,7 +67,7 @@ pub enum TokenType {
     Tilde // ~
 }
 
-/// The range of state keys used by the TILL lexer.
+/// The range of state keys used by the till lexer.
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum StateKey {
     Initial,

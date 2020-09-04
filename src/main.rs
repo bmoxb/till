@@ -1,3 +1,8 @@
+//! Compiler implemented from scratch in Rust for a toy language featuring static
+//! type checking.
+//! 
+//! [See on GitHub](https://github.com/WiredSound/till)
+
 mod stream;
 mod lexing;
 mod parsing;
@@ -5,8 +10,6 @@ mod checking;
 
 use std::{ env, fs, io, fmt };
 use std::path::{ Path, PathBuf };
-
-const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
 fn main() {
     // Only enable logging if debug build:
@@ -22,8 +25,11 @@ fn main() {
     }
 }
 
+/// Read till code from the file at the specified input path, compile that code,
+/// and then write the resulting machine code to the file at the specified output
+/// path.
 fn compile(relative_in: &str, relative_out: &str) {
-    println!("-- Till Compiler {} --", VERSION);
+    println!("-- Till Compiler {} --", env!("CARGO_PKG_VERSION"));
 
     let in_path = to_full_path(relative_in);
     let _out_path = to_full_path(relative_out);

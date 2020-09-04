@@ -1,6 +1,9 @@
+//! Handle the reading of a input stream (e.g. a file) a character at a time.
+
 use std::{ fs, fmt };
 use char_stream::CharStream;
 
+/// Structure representing a given position within a stream.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Position {
     pub position: u64,
@@ -20,6 +23,8 @@ impl fmt::Display for Position {
     }
 }
 
+/// Structure that allows the reading from an input source a character at a time
+/// while tracking position without said source.
 pub struct Stream {
     char_stream: CharStream,
     pos: Position

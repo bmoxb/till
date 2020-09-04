@@ -1,6 +1,11 @@
+//! Contains structures and enumerations used during the checking of scoping and
+//! typing rules, as well as ones for representing the final immediate representation
+//! of a till program. For the actual checking code, see submodule `checker`.
+
 pub mod checker;
-use std::{ fmt, cmp, mem };
+
 use crate::parsing;
+use std::{ fmt, cmp, mem };
 
 #[derive(Debug, PartialEq)]
 pub enum Failure { // TODO: Show stream position in error messages.
@@ -112,16 +117,16 @@ impl ProgramRepresentation {
     }
 }
 
+/// Represents a scope within a till program. A new scope is created in the body
+/// of a function definition, if statement, or while statement. Any variables
+/// or functions declared in a given scope will only be accessible from within
+/// that scope or from a scope nested in it.
 #[derive(Debug)]
 struct Scope {
     variable_defs: Vec<VariableDef>,
     function_defs: Vec<FunctionDef>
 }
 
-/// Represents a scope within a till program. A new scope is created in the body
-/// of a function definition, if statement, or while statement. Any variables
-/// or functions declared in a given scope will only be accessible from within
-/// that scope or from a scope nested in it.
 impl Scope {
     fn find_variable_def(&self, ident: &str) -> Option<&VariableDef> {
         for def in &self.variable_defs {
@@ -156,6 +161,8 @@ impl VariableDef {
     }
 }
 
+/// Definition of a function with an identifier, set of parameters, and a return
+/// type.
 #[derive(Debug, PartialEq)]
 struct FunctionDef {
     identifier: String,
@@ -174,6 +181,8 @@ enum ConstValue {
     Num(f64), Char(char), Bool(bool), Array(Vec<ConstValue>)
 }
 
+/// Represents the simple, assembly-like instructions that make up the final
+/// immediate representation of a till program.
 #[derive(Debug)]
 enum Instruction {
     Push(Value), // Push value at specified

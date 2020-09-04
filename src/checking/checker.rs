@@ -1,3 +1,6 @@
+//! Contains code for the semantic analysis of a till AST and its conversion to
+//! a final immediate representation of the input program.
+
 use crate::parsing;
 
 pub fn input<T: Iterator<Item=parsing::Statement>>(stmts: T) -> super::Result<super::ProgramRepresentation> {
@@ -18,7 +21,7 @@ pub struct Checker<T: Iterator<Item=parsing::Statement>> {
 }
 
 impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
-    fn new(stmts: T) -> Checker<T> {
+    fn new(stmts: T) -> Self {
         Checker {
             stmts,
             final_ir: super::ProgramRepresentation::new(),
