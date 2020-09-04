@@ -1,2 +1,4 @@
-add1(Num x) -> Num
-	return x + 1
+Num y = 2
+Num x = 8 * (10 - y) + 3
+if x > y
+	x = 0

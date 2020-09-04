@@ -3,7 +3,7 @@
 
 use crate::parsing;
 
-pub fn input<T: Iterator<Item=parsing::Statement>>(stmts: T) -> super::Result<super::ProgramRepresentation> {
+pub fn input<T: Iterator<Item=parsing::Statement>>(stmts: T) -> super::Result<Vec<super::Instruction>> {
     Checker::new(stmts).execute()
 }
 
@@ -12,27 +12,31 @@ pub fn input<T: Iterator<Item=parsing::Statement>>(stmts: T) -> super::Result<su
 pub struct Checker<T: Iterator<Item=parsing::Statement>> {
     /// Iterator of statements to be checked.
     stmts: T,
-    /// The final program representation which is gradually constructed.
-    pub final_ir: super::ProgramRepresentation,
-    /// Stack of indexes to the program representation's scopes. Indexes at the
-    /// end of this vector are for the inner scopes. When a scope ends, it's index
-    /// is removed from this vector (but it remains a part of the IR).
-    scope_index_stack: Vec<usize>
+    /// The scope stack. The scope at the end of this vector is the inner most
+    /// scope at a given point.
+    scopes: Vec<super::Scope>,
+    /// Holds the primitive instructions that will make up the final immediate
+    /// representation of the input program.
+    final_ir: Vec<super::Instruction>,
+    /// Counter for creating unique IDs for variables. Incremented each time a
+    /// new variable is created.
+    var_id_counter: super::VarId
 }
 
 impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
     fn new(stmts: T) -> Self {
         Checker {
             stmts,
-            final_ir: super::ProgramRepresentation::new(),
-            scope_index_stack: Vec::new()
+            scopes: Vec::new(),
+            final_ir: Vec::new(),
+            var_id_counter: 0
         }
     }
 
     /// Perform scoping and type checking before yielding the final immediate
     /// representation of the input program. This will consume the `Checker`
     /// instance.
-    fn execute(mut self) -> super::Result<super::ProgramRepresentation> {
+    fn execute(mut self) -> super::Result<Vec<super::Instruction>> {
         self.begin_new_scope();
     
         while let Some(stmt) = self.stmts.next() {
@@ -42,7 +46,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         log::info!("Reached end of statement stream - ending program scope");
 
         self.end_scope();
-        assert!(self.scope_index_stack.is_empty());
+        assert!(self.scopes.is_empty());
 
         Ok(self.final_ir)
     }
@@ -51,48 +55,67 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
     /// the statement being a return statement.
     fn check_stmt(&mut self, stmt: &parsing::Statement) -> super::Result<Option<super::Type>> {
         match stmt {
-            parsing::Statement::Return(Some(expr)) => Ok(Some(self.check_expr(expr)?)),
-            parsing::Statement::Return(None) => Ok(None),
+            parsing::Statement::Return(Some(expr)) => {
+                let value = self.check_expr(expr)?;
+                self.final_ir.push(super::Instruction::ReturnValue);
+                Ok(Some(value))
+            }
+            parsing::Statement::Return(None) => {
+                self.final_ir.push(super::Instruction::ReturnVoid);
+                Ok(None)
+            }
 
             parsing::Statement::If { condition, block } |
             parsing::Statement::While { condition, block } => {
+                // TODO: Final IR instructions
                 self.expect_expr_type(condition, super::Type::Bool)?;
-                Ok(self.check_block(block, Vec::new())?)
+                let (block_ret_type, _) = self.check_block(block, &Vec::new())?;
+                Ok(block_ret_type)
             }
 
             parsing::Statement::VariableDeclaration { var_type, identifier, value } => {
                 let checking_type = super::Type::from_parsing_type(var_type)?;
 
+                let var_id = { 
+                    // If variable is already defined then ensure it is being redeclared
+                    // to the same type:
+                    if let Some(existing_def) = self.get_inner_scope().find_variable_def(identifier) {
+                        log::trace!("Redeclaring variable '{}' in same scope", identifier);
+
+                        if checking_type != existing_def.var_type {
+                            return Err(super::Failure::RedeclaredToDifferentType {
+                                identifier: identifier.to_string(),
+                                expected: existing_def.var_type.clone(),
+                                encountered: checking_type
+                            });
+                        }
+
+                        existing_def.id
+                    }
+                    else {
+                        log::trace!("Introducing variable '{}' to current scope", identifier);
+
+                        let var_id = self.introduce_variable_to_inner_scope(identifier, checking_type.clone());
+                        self.final_ir.push(super::Instruction::Allocate(var_id));
+
+                        var_id
+                    }
+                };
+
                 // Ensure initial value expression is of correct type:
                 if let Some(initial_value) = value {
-                    self.expect_expr_type(initial_value, checking_type.clone())?;
-                }
+                    self.expect_expr_type(initial_value, checking_type)?;
 
-                // If variable is already defined then ensure it is being redeclared
-                // to the same type:
-                if let Some(existing_def) = self.get_inner_scope().find_variable_def(identifier) {
-                    log::trace!("Redeclaring variable '{}' in same scope", identifier);
-
-                    if checking_type != existing_def.var_type {
-                        return Err(super::Failure::RedeclaredToDifferentType {
-                            identifier: identifier.to_string(),
-                            expected: existing_def.var_type.clone(),
-                            encountered: checking_type
-                        });
-                    }
-                }
-                else {
-                    log::trace!("Introducing variable '{}' to current scope", identifier);
-
-                    self.introduce_variable_to_inner_scope(super::VariableDef::new(identifier, checking_type));
+                    // Store the initial value instruction:
+                    self.final_ir.push(super::Instruction::Store(var_id));
                 }
 
                 Ok(None)
             }
 
             parsing::Statement::VariableAssignment { identifier, assign_to } => {
-                let var_def = self.variable_lookup(identifier)?;
                 let assign_to_type = self.check_expr(assign_to)?;
+                let var_def = self.variable_lookup(identifier)?;
 
                 if var_def.var_type != assign_to_type {
                     return Err(super::Failure::UnexpectedType {
@@ -105,22 +128,12 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
             }
 
             parsing::Statement::FunctionDefinition { identifier, parameters, return_type, body } => {
-                let mut param_var_defs = Vec::new();
-                 for param in parameters {
-                    param_var_defs.push(super::VariableDef {
-                        var_type: super::Type::from_parsing_type(&param.param_type)?,
-                        identifier: param.identifier.to_string()
-                    });
-                }
-
-                let param_types: Vec<super::Type> = param_var_defs.iter().map(|x| x.var_type.clone()).collect();
-
-                let optional_body_return_type = self.check_block(body, param_var_defs)?;
+                let (optional_body_return_type, param_types) = self.check_block(body, parameters)?;
 
                 // Is a function with the same identifier and type signature
                 // defined and accessible from this scope?
                 if self.function_lookup(identifier, param_types.as_slice()).is_ok() {
-                    Err(super::Failure::RedefinedExistingFunction(identifier.to_string(), param_types))
+                    Err(super::Failure::RedefinedExistingFunction(identifier.to_string(), param_types.to_vec()))
                 }
                 else {
                     // Return type specified in function signature:
@@ -144,7 +157,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                         }
                         else {
                             return Err(super::Failure::FunctionDoesNotReturn(
-                                identifier.to_string(), param_types,
+                                identifier.to_string(), param_types.to_vec(),
                                 expected_return_type
                             ));
                         }
@@ -153,7 +166,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                         // Does function body return something?
                         if let Some(body_return_type) = optional_body_return_type {
                             Err(super::Failure::VoidFunctionReturnsValue(
-                                identifier.to_string(), param_types,
+                                identifier.to_string(), param_types.to_vec(),
                                 body_return_type
                             ))
                         }
@@ -171,12 +184,17 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
     /// a return statement be encountered, the type of the returned expression
     /// is returned within `Ok(Some(...))`. If there are multiple return statements,
     /// then it will be ensured that they are all returning the same type.
-    fn check_block(&mut self, block: &parsing::Block, var_defs: Vec<super::VariableDef>) -> super::Result<Option<super::Type>> {
+    fn check_block(&mut self, block: &parsing::Block, params: &Vec<parsing::Parameter>) -> super::Result<(Option<super::Type>, Vec<super::Type>)> {
         let mut ret_type = None;
 
         self.begin_new_scope();
 
-        for var_def in var_defs { self.introduce_variable_to_inner_scope(var_def) }
+        let mut param_types = Vec::new();
+        for param in params {
+            let converted_type = super::Type::from_parsing_type(&param.param_type)?;
+            self.introduce_variable_to_inner_scope(&param.identifier, converted_type.clone());
+            param_types.push(converted_type);
+        }
 
         for stmt in block {
             if let Some(new) = self.check_stmt(stmt)? {
@@ -195,21 +213,22 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
 
         self.end_scope();
 
-        Ok(ret_type)
+        Ok((ret_type, param_types))
     }
 
     fn begin_new_scope(&mut self) {
-        let index = self.final_ir.create_scope();
-        self.scope_index_stack.push(index);
+        self.scopes.push(super::Scope {
+            variable_defs: Vec::new(),
+            function_defs: Vec::new()
+        });
     }
 
     fn end_scope(&mut self) {
-        self.scope_index_stack.pop();
+        self.scopes.pop();
     }
 
     fn get_inner_scope(&mut self) -> &mut super::Scope {
-        let index = self.scope_index_stack.last().unwrap();
-        &mut self.final_ir.scopes[*index]
+        self.scopes.last_mut().unwrap()
     }
 
     /// Search the current accessible scopes for the variable definition with
@@ -217,9 +236,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
     fn variable_lookup(&self, ident: &str) -> super::Result<&super::VariableDef> {
         // Reverse the iterator so that the inner most scope has priority (i.e.
         // automatically handle shadowing).
-        for scope_index in self.scope_index_stack.iter().rev() {
-            let scope = &self.final_ir.scopes[*scope_index];
-    
+        for scope in self.scopes.iter().rev() {
             if let Some(var_def) = scope.find_variable_def(ident) {
                 return Ok(var_def)
             }
@@ -228,14 +245,20 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
     }
 
     /// Introduce a new variable into the current inner most scope.
-    fn introduce_variable_to_inner_scope(&mut self, var_def: super::VariableDef) {
-        self.get_inner_scope().variable_defs.push(var_def)
+    fn introduce_variable_to_inner_scope(&mut self, ident: &str, var_type: super::Type) -> super::VarId {
+        let id = self.var_id_counter;
+        
+        self.get_inner_scope().variable_defs.push(super::VariableDef {
+            var_type, identifier: ident.to_string(), id
+        });
+        
+        self.var_id_counter += 1;
+
+        id
     }
 
     fn function_lookup(&self, ident: &str, params: &[super::Type]) -> super::Result<&super::FunctionDef> {
-        for scope_index in self.scope_index_stack.iter().rev() {
-            let scope = &self.final_ir.scopes[*scope_index]; // TODO: Make helper function for reverse iterating scopes on stack.
-
+        for scope in self.scopes.iter().rev() {
             if let Some(func_def) = scope.find_function_def(ident, params) {
                 return Ok(func_def)
             }
@@ -251,17 +274,25 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         })
     }
 
-    fn check_expr(&self, expr: &parsing::Expression) -> super::Result<super::Type> {
+    fn check_expr(&mut self, expr: &parsing::Expression) -> super::Result<super::Type> {
         match expr {
             parsing::Expression::Variable { pos: _, identifier } => {
                 log::trace!("Searching scope for the type of referenced variable with identifier '{}'", identifier);
 
-                let definition = self.variable_lookup(identifier)?;
-                Ok(definition.var_type.clone())
+                let (var_type, id) = {
+                    let def = self.variable_lookup(identifier)?;
+                    (def.var_type.clone(), def.id)
+                };
+
+                self.final_ir.push(super::Instruction::Push(super::Value::Variable(id)));
+
+                Ok(var_type)
             }
 
             parsing::Expression::FunctionCall {pos: _, identifier, args } => {
                 log::trace!("Searching scope for the return type of referenced function '{}' given arguments {:?}", identifier, args);
+
+                // TODO: Produce final IR instructions
 
                 let mut arg_types = Vec::new();
                 for arg in args { arg_types.push(self.check_expr(arg)?) }
@@ -274,25 +305,33 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                 }
             }
 
-            parsing::Expression::Add(left, right) |
-            parsing::Expression::Subtract(left, right) |
-            parsing::Expression::Multiply(left, right) |
-            parsing::Expression::Divide(left, right) => {
-                log::trace!("Verifying types of arithmetic expression (addition, division, etc.) - Num type on both sides of operator expected");
-
-                self.expect_expr_type(left, super::Type::Num)?;
-                self.expect_expr_type(right, super::Type::Num)?;
-
+            parsing::Expression::Add(l, r) => {
+                self.verify_arithmetic_expr(l, r, super::Instruction::Add, "addition")?;
                 Ok(super::Type::Num)
             }
 
-            parsing::Expression::GreaterThan(left, right) |
-            parsing::Expression::LessThan(left, right) => {
-                log::trace!("Verifying type of arithmetic comparison expression (greater than, less than) - Num type type on both sides expected");
+            parsing::Expression::Subtract(l, r) => {
+                self.verify_arithmetic_expr(l, r, super::Instruction::Subtract, "subtraction")?;
+                Ok(super::Type::Num)
+            }
 
-                self.expect_expr_type(left, super::Type::Num)?;
-                self.expect_expr_type(right, super::Type::Num)?;
+            parsing::Expression::Multiply(l, r) => {
+                self.verify_arithmetic_expr(l, r, super::Instruction::Multiply, "multiplication")?;
+                Ok(super::Type::Num)
+            }
 
+            parsing::Expression::Divide(l, r) => {
+                self.verify_arithmetic_expr(l, r, super::Instruction::Divide, "divide")?;
+                Ok(super::Type::Num)
+            }
+
+            parsing::Expression::GreaterThan(l, r) => {
+                self.verify_arithmetic_expr(l, r, super::Instruction::GreaterThan, "greater than")?;
+                Ok(super::Type::Bool)
+            }
+
+            parsing::Expression::LessThan(l, r) => {
+                self.verify_arithmetic_expr(l, r, super::Instruction::LessThan, "less than")?;
                 Ok(super::Type::Bool)
             }
 
@@ -303,6 +342,8 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                 let right_type = self.check_expr(right)?;
 
                 if left_type == right_type {
+                    self.final_ir.push(super::Instruction::Equals);
+
                     Ok(super::Type::Bool)
                 }
                 else {
@@ -344,14 +385,46 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                 Ok(super::Type::Array(Box::new(contained_type)))
             }
 
-            parsing::Expression::StringLiteral { pos: _, value: _ } => Ok(super::Type::Array(Box::new(super::Type::Char))),
-            parsing::Expression::NumberLiteral {pos: _, value: _ } => Ok(super::Type::Num),
-            parsing::Expression::BooleanLiteral { pos: _, value: _ } => Ok(super::Type::Bool),
-            parsing::Expression::CharLiteral { pos: _, value: _ } => Ok(super::Type::Char)
+            parsing::Expression::StringLiteral { pos: _, value } => {
+                // TODO: ...
+                Ok(super::Type::Array(Box::new(super::Type::Char)))
+            }
+            parsing::Expression::NumberLiteral {pos: _, value } => {
+                self.final_ir.push(super::Instruction::Push(
+                    super::Value::Constant(super::ConstValue::Num(*value))
+                ));
+
+                Ok(super::Type::Num)
+            }
+            parsing::Expression::BooleanLiteral { pos: _, value } => {
+                self.final_ir.push(super::Instruction::Push(
+                    super::Value::Constant(super::ConstValue::Bool(*value))
+                ));
+
+                Ok(super::Type::Bool)
+            }
+            parsing::Expression::CharLiteral { pos: _, value } => {
+                self.final_ir.push(super::Instruction::Push(
+                    super::Value::Constant(super::ConstValue::Char(*value))
+                ));
+
+                Ok(super::Type::Char)
+            }
         }
     }
 
-    fn expect_expr_type(&self, expr: &parsing::Expression, expected: super::Type) -> super::Result<()> {
+    fn verify_arithmetic_expr(&mut self, left: &parsing::Expression, right: &parsing::Expression, instruction: super::Instruction, expr_type: &str) -> super::Result<()> {
+        log::trace!("Verifying types of {} expression - Num type on both sides of operator expected", expr_type);
+
+        self.expect_expr_type(left, super::Type::Num)?;
+        self.expect_expr_type(right, super::Type::Num)?;
+
+        self.final_ir.push(instruction);
+
+        Ok(())
+    }
+
+    fn expect_expr_type(&mut self, expr: &parsing::Expression, expected: super::Type) -> super::Result<()> {
         let expr_type = self.check_expr(expr)?;
         
         if expr_type == expected { Ok(()) }
@@ -376,15 +449,16 @@ mod tests {
     fn scoping() {
         let mut chkr = new_empty_checker();
 
-        chkr.introduce_variable_to_inner_scope(checking::VariableDef::new("outer", checking::Type::Num));
+        chkr.introduce_variable_to_inner_scope("outer", checking::Type::Num);
         assert_eq!(chkr.variable_lookup("outer"), Ok(&checking::VariableDef {
             identifier: "outer".to_string(),
-            var_type: checking::Type::Num
+            var_type: checking::Type::Num,
+            id: 0
         }));
 
         chkr.begin_new_scope();
 
-        chkr.introduce_variable_to_inner_scope(checking::VariableDef::new("inner", checking::Type::Bool));
+        chkr.introduce_variable_to_inner_scope("inner", checking::Type::Bool);
 
         assert!(chkr.variable_lookup("inner").is_ok());
         assert!(chkr.variable_lookup("outer").is_ok());
@@ -514,7 +588,7 @@ mod tests {
             Err(checking::Failure::VariableNotInScope("undefined".to_string()))
         );
 
-        chkr.introduce_variable_to_inner_scope(checking::VariableDef::new("var", checking::Type::Num));
+        chkr.introduce_variable_to_inner_scope("var", checking::Type::Num);
 
         chkr.begin_new_scope();
         assert_eq!(

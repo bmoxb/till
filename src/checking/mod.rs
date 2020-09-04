@@ -89,34 +89,6 @@ impl cmp::PartialEq for Type {
     }
 }
 
-/// The final immediate representation of a till program before it is converted
-/// into machine code.
-#[derive(Debug)]
-pub struct ProgramRepresentation {
-    /// The primitive, assembly-like instructions that make up the input program.
-    instructions: Vec<Instruction>,
-    /// Contains all scopes of the program. This vector should only ever be added
-    /// to. The relationship between scopes is only considered during the checking
-    /// stage and so is not included as part of the final immediate representation.
-    scopes: Vec<Scope>
-}
-
-impl ProgramRepresentation {
-    fn new() -> Self {
-        ProgramRepresentation {
-            instructions: Vec::new(), scopes: Vec::new()
-        }
-    }
-
-    fn create_scope(&mut self) -> usize {
-        self.scopes.push(Scope { 
-            variable_defs: Vec::new(),
-            function_defs: Vec::new()
-        });
-        self.scopes.len() - 1
-    }
-}
-
 /// Represents a scope within a till program. A new scope is created in the body
 /// of a function definition, if statement, or while statement. Any variables
 /// or functions declared in a given scope will only be accessible from within
@@ -145,20 +117,14 @@ impl Scope {
     }
 }
 
+type VarId = usize;
+
 /// Definition of a variable with a given identifier and type.
 #[derive(Debug, PartialEq)]
 struct VariableDef {
     identifier: String,
-    var_type: Type
-}
-
-impl VariableDef {
-    fn new(ident: &str, var_type: Type) -> Self {
-        VariableDef {
-            identifier: ident.to_string(),
-            var_type
-        }
-    }
+    var_type: Type,
+    id: VarId
 }
 
 /// Definition of a function with an identifier, set of parameters, and a return
@@ -172,7 +138,7 @@ struct FunctionDef {
 
 #[derive(Debug, PartialEq)]
 enum Value {
-    Variable { scope: usize, identifier: String },
+    Variable(VarId),
     Constant(ConstValue)
 }
 
@@ -184,15 +150,24 @@ enum ConstValue {
 /// Represents the simple, assembly-like instructions that make up the final
 /// immediate representation of a till program.
 #[derive(Debug)]
-enum Instruction {
-    Push(Value), // Push value at specified
-    Pop(Value), // Pop value into specified
-    Equals(Value), // Compare top of stack with specified
-    Add(Value), // Pop top of stack, add to specified, push result
-    Subtract(Value), // Pop top of stack, subtract from specified, push result
-    Multiply(Value), // Pop top of stack, multiply with specified, push result
-    Divide(Value), // Pop top of stack, divide by specified, push result
+pub enum Instruction {
+    Allocate(VarId),
+    Deallocate(VarId),
+    /// Push the specified value onto the stack.
+    Push(Value),
+    /// Pop a value off the stack and store it in the specified location.
+    Store(VarId),
+    Equals,
+    GreaterThan,
+    LessThan,
+    Add, // Pop top of stack, add to specified, push result
+    Subtract, // Pop top of stack, subtract from specified, push result
+    Multiply, // Pop top of stack, multiply with specified, push result
+    Divide, // Pop top of stack, divide by specified, push result
     Not, // Pop top of stack, if 0 then push 1, else push 0
     Call(Value), // Jump to specified, return here when Instruction::Return encountered
-    Return // Return from call
+    /// Return from call, returning value on top of stack.
+    ReturnValue,
+    /// Return from call without including a value.
+    ReturnVoid
 }
