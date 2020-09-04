@@ -1,11 +1,7 @@
 use crate::parsing;
 
 pub fn input<T: Iterator<Item=parsing::Statement>>(stmts: T) -> super::Result<super::ProgramRepresentation> {
-    Checker {
-        stmts: stmts,
-        final_ir: super::ProgramRepresentation::new(),
-        scope_index_stack: Vec::new()
-    }.execute()
+    Checker::new(stmts).execute()
 }
 
 /// Performs scoping and type checking on a stream of parsed statements. Yields
@@ -22,6 +18,14 @@ pub struct Checker<T: Iterator<Item=parsing::Statement>> {
 }
 
 impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
+    fn new(stmts: T) -> Checker<T> {
+        Checker {
+            stmts,
+            final_ir: super::ProgramRepresentation::new(),
+            scope_index_stack: Vec::new()
+        }
+    }
+
     /// Perform scoping and type checking before yielding the final immediate
     /// representation of the input program. This will consume the `Checker`
     /// instance.
@@ -359,7 +363,11 @@ mod tests {
     use std::iter;
     use crate::{ parsing, checking, stream::Position };
 
-    fn new_empty_checker() -> super::Checker<iter::Empty<parsing::Statement>> { super::input(iter::empty()) }
+    fn new_empty_checker() -> super::Checker<iter::Empty<parsing::Statement>> {
+        let mut chkr = super::Checker::new(iter::empty());
+        chkr.begin_new_scope();
+        chkr
+    }
 
     #[test]
     fn scoping() {
