@@ -114,15 +114,22 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
             }
 
             parsing::Statement::VariableAssignment { identifier, assign_to } => {
-                let assign_to_type = self.check_expr(assign_to)?;
-                let var_def = self.variable_lookup(identifier)?;
+                let var_id = {
+                    let assign_to_type = self.check_expr(assign_to)?;
+                    
+                    let var_def = self.variable_lookup(identifier)?;
 
-                if var_def.var_type != assign_to_type {
-                    return Err(super::Failure::UnexpectedType {
-                        encountered: assign_to_type,
-                        expected: var_def.var_type.clone()
-                    });
-                }
+                    if var_def.var_type != assign_to_type {
+                        return Err(super::Failure::UnexpectedType {
+                            encountered: assign_to_type,
+                            expected: var_def.var_type.clone()
+                        });
+                    }
+
+                    var_def.id
+                };
+
+                self.final_ir.push(super::Instruction::Store(var_id));
 
                 Ok(None)
             }
@@ -182,8 +189,8 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
 
     /// Iterate over the statements contained in a block, checking each. Should
     /// a return statement be encountered, the type of the returned expression
-    /// is returned within `Ok(Some(...))`. If there are multiple return statements,
-    /// then it will be ensured that they are all returning the same type.
+    /// is returned within `Ok(Some(...), ...)`. If there are multiple return
+    /// statements then it will be ensured that they are all returning the same type.
     fn check_block(&mut self, block: &parsing::Block, params: &Vec<parsing::Parameter>) -> super::Result<(Option<super::Type>, Vec<super::Type>)> {
         let mut ret_type = None;
 
@@ -224,7 +231,12 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
     }
 
     fn end_scope(&mut self) {
-        self.scopes.pop();
+        if let Some(prev_scope) = self.scopes.pop() { // Remove scope from stack.
+            // Deallocate all variables belonging to that stack:
+            for var_def in prev_scope.variable_defs {
+                self.final_ir.push(super::Instruction::Deallocate(var_def.id));
+            }
+        }
     }
 
     fn get_inner_scope(&mut self) -> &mut super::Scope {
