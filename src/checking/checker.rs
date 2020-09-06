@@ -394,11 +394,13 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
             }
 
             parsing::Expression::Array(exprs) => {
+                let size = exprs.len();
+
                 let contained_type = 
                     if exprs.is_empty() { super::Type::Any } // can't infer type of empty literal...
                     else { self.check_expr(&exprs[0])? };
 
-                for expr in exprs {
+                for expr in exprs.iter().skip(1) {
                     let expr_type = self.check_expr(expr)?;
 
                     if contained_type != expr_type {
@@ -409,18 +411,27 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                     }
                 }
 
-                Ok(super::Type::Array(Box::new(contained_type)))
+                self.final_ir.push(super::Instruction::Push(super::Value::Array(size)));
+
+                Ok(super::Type::Array {
+                    contained_type: Box::new(contained_type), size
+                })
             }
 
             parsing::Expression::StringLiteral { pos: _, value } => {
-                // TODO
-                /*let array = value.chars().map(|chr| super::ConstValue::Char(chr)).collect();
-                
-                self.final_ir.push(super::Instruction::Push(
-                    super::Value::Constant(super::ConstValue::Array(array))
-                ));*/
+                let size = value.len();
 
-                Ok(super::Type::Array(Box::new(super::Type::Char)))
+                for chr in value.chars() {
+                    self.final_ir.push(super::Instruction::Push(
+                        super::Value::Char(chr)
+                    ));
+                }
+
+                self.final_ir.push(super::Instruction::Push(super::Value::Array(size)));
+
+                Ok(super::Type::Array { 
+                    contained_type: Box::new(super::Type::Char), size
+                })
             }
             parsing::Expression::NumberLiteral {pos: _, value } => {
                 self.final_ir.push(super::Instruction::Push(super::Value::Num(*value)));
@@ -530,7 +541,10 @@ mod tests {
 
         assert_eq!(
             chkr.check_expr(&parsing::Expression::StringLiteral { pos: Position::new(), value: "string".to_string() }),
-            Ok(checking::Type::Array(Box::new(checking::Type::Char)))
+            Ok(checking::Type::Array {
+                contained_type: Box::new(checking::Type::Char),
+                size: 6
+            })
         );
 
         assert_eq!(
@@ -538,7 +552,10 @@ mod tests {
                 parsing::Expression::NumberLiteral { pos: Position::new(), value: 0.1 },
                 parsing::Expression::NumberLiteral { pos: Position::new(), value: 0.2 }
             ])),
-            Ok(checking::Type::Array(Box::new(checking::Type::Num)))
+            Ok(checking::Type::Array {
+                contained_type: Box::new(checking::Type::Num),
+                size: 2
+            })
         );
 
         assert_eq!(
@@ -696,12 +713,15 @@ mod tests {
 
         assert_eq!(
             chkr.check_stmt(&parsing::Statement::While {
-                condition: parsing::Expression::StringLiteral { pos: Position::new(), value: "this isn't a bool!".to_string() },
+                condition: parsing::Expression::StringLiteral { pos: Position::new(), value: "oops!".to_string() },
                 block: vec![]
             }),
             Err(checking::Failure::UnexpectedType {
                 expected: checking::Type::Bool,
-                encountered: checking::Type::Array(Box::new(checking::Type::Char))
+                encountered: checking::Type::Array {
+                    contained_type: Box::new(checking::Type::Char),
+                    size: 5
+                }
             })
         );
 
@@ -718,12 +738,21 @@ mod tests {
         assert_eq!(
             chkr.check_stmt(&parsing::Statement::VariableDeclaration {
                 identifier: "abc".to_string(),
-                var_type: parsing::Type::Array(Box::new(parsing::Type::Identifier { pos: Position::new(), identifier: "Num".to_string() })),
-                value: Some(parsing::Expression::StringLiteral { pos: Position::new(), value: "this isn't a Num array!".to_string() })
+                var_type: parsing::Type::Array {
+                    contained_type: Box::new(parsing::Type::Identifier { pos: Position::new(), identifier: "Num".to_string() }),
+                    size: 5
+                },
+                value: Some(parsing::Expression::StringLiteral { pos: Position::new(), value: "nope!".to_string() })
             }),
             Err(checking::Failure::UnexpectedType {
-                encountered: checking::Type::Array(Box::new(checking::Type::Char)),
-                expected: checking::Type::Array(Box::new(checking::Type::Num))
+                encountered: checking::Type::Array {
+                    contained_type: Box::new(checking::Type::Char),
+                    size: 5
+                },
+                expected: checking::Type::Array {
+                    contained_type: Box::new(checking::Type::Num),
+                    size: 5
+                }
             })
         );
 
@@ -888,51 +917,5 @@ mod tests {
         );
 
         Ok(())
-    }
-
-    #[test]
-    fn empty_array_literals() {
-        let mut chkr = new_empty_checker();
-
-        assert_eq!(
-            chkr.check_stmt(&parsing::Statement::VariableDeclaration {
-                identifier: "ok".to_string(),
-                var_type: parsing::Type::Array(Box::new(parsing::Type::Identifier {
-                    pos: Position::new(), identifier: "Num".to_string()
-                })),
-                value: Some(parsing::Expression::Array(vec![]))
-            }),
-            Ok(None)
-        );
-
-        assert_eq!(
-            chkr.check_stmt(&parsing::Statement::VariableDeclaration {
-                identifier: "bad".to_string(),
-                var_type: parsing::Type::Identifier { pos: Position::new(), identifier: "Bool".to_string() },
-                value: Some(parsing::Expression::Array(vec![]))
-            }),
-            Err(checking::Failure::UnexpectedType {
-                expected: checking::Type::Bool,
-                encountered: checking::Type::Array(Box::new(checking::Type::Any))
-            })
-        );
-
-        assert_eq!(
-            chkr.check_stmt(&parsing::Statement::VariableDeclaration {
-                identifier: "wow".to_string(),
-                var_type: parsing::Type::Array(Box::new(
-                    parsing::Type::Array(Box::new(
-                        parsing::Type::Identifier { pos: Position::new(), identifier: "Num".to_string() }
-                    ))
-                )),
-                value: Some(parsing::Expression::Array(vec![
-                    parsing::Expression::Array(vec![]),
-                    parsing::Expression::Array(vec![
-                        parsing::Expression::NumberLiteral { pos: Position::new(), value: 1.5 }
-                    ])
-                ]))
-            }),
-            Ok(None)
-        );
     }
 }

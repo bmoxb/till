@@ -44,7 +44,7 @@ type Result<T> = std::result::Result<T, Failure>;
 /// not with an array type.
 #[derive(Clone, Debug)]
 pub enum Type {
-    Array(Box<Type>),
+    Array { contained_type: Box<Type>, size: usize },
     Char, Num, Bool,
     Any
 }
@@ -61,7 +61,10 @@ impl Type {
                 }
             }
 
-            parsing::Type::Array(contained) => Ok(Type::Array(Box::new(Type::from_parsing_type(contained)?)))
+            parsing::Type::Array { contained_type, size } => Ok(Type::Array {
+                contained_type: Box::new(Type::from_parsing_type(contained_type)?),
+                size: *size
+            })
         }
     }
 }
@@ -69,7 +72,7 @@ impl Type {
 impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Type::Array(contained) => write!(f, "[{}]", contained),
+            Type::Array { contained_type, size } => write!(f, "{}[{}]", contained_type, size),
             Type::Any => write!(f, "???"),
             other => write!(f, "{:?}", other)
         }
@@ -79,9 +82,12 @@ impl fmt::Display for Type {
 impl cmp::PartialEq for Type {
     fn eq(&self, other: &Type) -> bool {
         match (self, other) {
-            (Type::Array(left), Type::Array(right)) => *left == *right,
-            (Type::Array(_), _) => false,
-            (_, Type::Array(_)) => false,
+            (
+                Type::Array { contained_type: left, size: _ },
+                Type::Array { contained_type: right, size: _ }
+            ) => *left == *right,
+            (Type::Array { contained_type: _, size: _ }, _) => false,
+            (_, Type::Array { contained_type: _, size: _ }) => false,
             (Type::Any, _) => true,
             (_, Type::Any) => true,
             _ => mem::discriminant(self) == mem::discriminant(other)

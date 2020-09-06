@@ -240,26 +240,42 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
         Ok(super::Statement::Return(self.expression().ok()))
     }
 
-    /// `<type> ::= typeidentifier | "[" <type> "]"`
+    /// `<type> ::= typeidentifier | <type> "[" number "]"`
     fn parse_type(&mut self) -> super::Result<super::Type> {
+
         let tok = self.consume_token("type")?;
-        
-        match tok.tok_type {
-            // Array type:
-            lexer::TokenType::BracketSquareOpen => {
-                let contained_type = Box::new(self.parse_type()?);
-                self.consume_token_of_expected_type(&lexer::TokenType::BracketSquareClose, "closing square bracket ] for array type")?;
-                Ok(super::Type::Array(contained_type))
-            }
 
-            // Type identifier:
-            lexer::TokenType::TypeIdentifier(identifier) => Ok(super::Type::Identifier {
-                pos: tok.lexeme.pos,
-                identifier
-            }),
+        let mut parsed_type = match tok.tok_type {
+            lexer::TokenType::TypeIdentifier(identifier) => super::Type::Identifier {
+                pos:  tok.lexeme.pos, identifier
+            },
 
-            _ => Err(super::Failure::UnexpectedToken(tok, "type"))
+            _ => return Err(super::Failure::UnexpectedToken(tok, "type"))
+        };
+
+        while self.consume_token_if_type(&lexer::TokenType::BracketSquareOpen, "").unwrap_or(None).is_some() {
+            let tok = self.consume_token("array type size")?;
+
+            let array_size = match tok.tok_type {
+                lexer::TokenType::NumberLiteral(num) => {
+                    if num > 0.0 && num % 1.0 == 0.0 { // Positive integer?
+                        num as usize
+                    }
+                    else { return Err(super::Failure::InvalidArraySize(num)) }
+                },
+
+                _ => return Err(super::Failure::UnexpectedToken(tok, "array type size"))
+            };
+
+            parsed_type = super::Type::Array {
+                contained_type: Box::new(parsed_type),
+                size: array_size
+            };
+
+            self.consume_token_of_expected_type(&lexer::TokenType::BracketSquareClose, "closing bracket ] in type")?;
         }
+
+        Ok(parsed_type)
     }
 
     /// `<param> ::= <type> identifier`
@@ -641,20 +657,22 @@ mod tests {
             _ => panic!()
         }
 
-        match quick_parse("[Num]").parse_type() {
-            Ok(parsing::Type::Array(contained)) => {
-                assert_pattern!(*contained, parsing::Type::Identifier { pos: _, identifier: _});
+        match quick_parse("Num[2]").parse_type() {
+            Ok(parsing::Type::Array { contained_type, size }) => {
+                assert_pattern!(*contained_type, parsing::Type::Identifier { pos: _, identifier: _});
+                assert_eq!(size, 2);
             }
             _ => panic!()
         }
+        // TODO: More tests...
     }
 
     #[test]
     fn variable_declaration_stmts() {
-        match quick_parse("[Char] x").next().unwrap() {
+        match quick_parse("Char[5] x").next().unwrap() {
             Ok(parsing::Statement::VariableDeclaration {
                 value: None,
-                var_type: parsing::Type::Array(_),
+                var_type: parsing::Type::Array { contained_type: _, size: _ },
                 identifier
             }) => {
                 assert_eq!(identifier, "x".to_string());
@@ -704,25 +722,28 @@ if x == 10
     #[test]
     fn function_parameters() {
         assert_pattern!(
-            quick_parse("[Num] my_param").parse_parameter(),
-            Ok(parsing::Parameter { param_type: parsing::Type::Array(_), identifier: _, pos: _ }) 
+            quick_parse("Num[2] my_param").parse_parameter(),
+            Ok(parsing::Parameter {
+                param_type: parsing::Type::Array { contained_type: _, size: 2 },
+                identifier: _, pos: _
+            }) 
         )
     }
 
     #[test]
     fn function_definition_stmts() {
         let mut prsr = quick_parse("
-some_function(Num x, Num y) -> [Num]
+some_function(Num x, Num y) -> Num[2]
     if x > y
-        [Num] z = [x - y, y - x]
+        Num[2] z = [x - y, y - x]
         
 no_args()
-    [Char] x = \"no args\"");
+    Char[7] x = \"no args\"");
 
         match prsr.next().unwrap() {
             Ok(parsing::Statement::FunctionDefinition {
                 identifier, parameters, body: _,
-                return_type: Some(parsing::Type::Array(_))
+                return_type: Some(parsing::Type::Array { contained_type: _, size: 2 })
             }) => {
                 assert_eq!(identifier, "some_function".to_string());
                 assert_eq!(parameters.len(), 2);

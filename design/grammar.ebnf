@@ -16,7 +16,7 @@
 
 <param> ::= <type> identifier
 
-<type> ::= typeidentifier | "[" <type> "]"
+<type> ::= typeidentifier | <type> "[" number "]"
 
 <declaration> ::= <type> identifier ("=" <expr>)?
 

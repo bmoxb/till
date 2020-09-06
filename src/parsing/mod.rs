@@ -15,7 +15,8 @@ use std::fmt;
 pub enum Failure {
     UnexpectedToken(lexer::Token, &'static str),
     UnexpectedStreamEnd(&'static str),
-    UnexpectedIndent { expected_indent: usize, encountered_indent: usize }
+    UnexpectedIndent { expected_indent: usize, encountered_indent: usize },
+    InvalidArraySize(f64)
 }
 
 impl fmt::Display for Failure {
@@ -24,7 +25,8 @@ impl fmt::Display for Failure {
             Failure::UnexpectedToken(tok, expected) => write!(f, "Expected {} yet encountered unexpected {}", expected, tok),
             Failure::UnexpectedStreamEnd(expected) => write!(f, "Encountered the end of the token stream yet expected {}", expected),
             Failure::UnexpectedIndent { expected_indent, encountered_indent } =>
-                write!(f, "Encountered an unexpected change in indentation from the expected level of {} to an indentation level of {} tabs", expected_indent, encountered_indent)
+                write!(f, "Encountered an unexpected change in indentation from the expected level of {} to an indentation level of {} tabs", expected_indent, encountered_indent),
+            Failure::InvalidArraySize(num) => write!(f, "Array size {} is invalid as the size of an array must be a positive integer", num)
         }
     }
 }
@@ -79,7 +81,7 @@ pub struct Parameter {
 #[derive(Debug, PartialEq)]
 pub enum Type {
     Identifier { pos: stream::Position, identifier: String },
-    Array(Box<Type>)
+    Array { contained_type: Box<Type>, size: usize }
 }
 
 /// Represents a till expression.
