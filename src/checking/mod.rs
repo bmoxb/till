@@ -137,14 +137,15 @@ struct FunctionDef {
 }
 
 #[derive(Debug, PartialEq)]
-enum Value {
+pub enum Value {
+    /// Value is determined by that of the variable with the specified ID.
     Variable(VarId),
-    Constant(ConstValue)
-}
-
-#[derive(Debug, PartialEq)]
-enum ConstValue {
-    Num(f64), Char(char), Bool(bool), Array(Vec<ConstValue>)
+    Num(f64),
+    Char(char),
+    Bool(bool),
+    /// The argument indicates the size of the array - that number of items at
+    /// the top of the stack are considered the elements of this array.
+    Array(usize)
 }
 
 /// Represents the simple, assembly-like instructions that make up the final
@@ -164,7 +165,7 @@ pub enum Instruction {
     Subtract, // Pop top of stack, subtract from specified, push result
     Multiply, // Pop top of stack, multiply with specified, push result
     Divide, // Pop top of stack, divide by specified, push result
-    Not, // Pop top of stack, if 0 then push 1, else push 0
+    Not, // Pop top of stack, perform boolean not and push result
     Call(Value), // Jump to specified, return here when Instruction::Return encountered
     /// Return from call, returning value on top of stack.
     ReturnValue,

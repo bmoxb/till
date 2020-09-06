@@ -378,11 +378,18 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                 log::trace!("Verifying type of expression to which boolean NOT operator is being applied - expecting Bool expression to right of operator");
 
                 self.expect_expr_type(expr, super::Type::Bool)?;
+                self.final_ir.push(super::Instruction::Not);
+
                 Ok(super::Type::Bool)
             }
 
             parsing::Expression::UnaryMinus(expr) => {
+                log::trace!("Verify type of expression to which unary minus is being applied - expecting Num");
+
                 self.expect_expr_type(expr, super::Type::Num)?;
+                self.final_ir.push(super::Instruction::Push(super::Value::Num(0.0)));
+                self.final_ir.push(super::Instruction::Subtract);
+
                 Ok(super::Type::Num)
             }
 
@@ -406,27 +413,27 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
             }
 
             parsing::Expression::StringLiteral { pos: _, value } => {
-                // TODO: ...
+                // TODO
+                /*let array = value.chars().map(|chr| super::ConstValue::Char(chr)).collect();
+                
+                self.final_ir.push(super::Instruction::Push(
+                    super::Value::Constant(super::ConstValue::Array(array))
+                ));*/
+
                 Ok(super::Type::Array(Box::new(super::Type::Char)))
             }
             parsing::Expression::NumberLiteral {pos: _, value } => {
-                self.final_ir.push(super::Instruction::Push(
-                    super::Value::Constant(super::ConstValue::Num(*value))
-                ));
+                self.final_ir.push(super::Instruction::Push(super::Value::Num(*value)));
 
                 Ok(super::Type::Num)
             }
             parsing::Expression::BooleanLiteral { pos: _, value } => {
-                self.final_ir.push(super::Instruction::Push(
-                    super::Value::Constant(super::ConstValue::Bool(*value))
-                ));
+                self.final_ir.push(super::Instruction::Push(super::Value::Bool(*value)));
 
                 Ok(super::Type::Bool)
             }
             parsing::Expression::CharLiteral { pos: _, value } => {
-                self.final_ir.push(super::Instruction::Push(
-                    super::Value::Constant(super::ConstValue::Char(*value))
-                ));
+                self.final_ir.push(super::Instruction::Push(super::Value::Char(*value)));
 
                 Ok(super::Type::Char)
             }
