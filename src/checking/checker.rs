@@ -223,6 +223,8 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         Ok((ret_type, param_types))
     }
 
+    /// Introduce a new, inner-most scope which is added to the end of the scope
+    /// stack.
     fn begin_new_scope(&mut self) {
         self.scopes.push(super::Scope {
             variable_defs: Vec::new(),
@@ -230,15 +232,19 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         });
     }
 
+    /// End the current inner-most scope. Deallocation instructions for each
+    /// variable in this scope will be added to the final IR.
     fn end_scope(&mut self) {
         if let Some(prev_scope) = self.scopes.pop() { // Remove scope from stack.
-            // Deallocate all variables belonging to that stack:
+            // Deallocate all variables belonging to that scope:
             for var_def in prev_scope.variable_defs {
                 self.final_ir.push(super::Instruction::Deallocate(var_def.id));
             }
         }
     }
 
+    /// Get a mutable reference to the current inner-most scope. Will panic if
+    /// the scope stack is empty.
     fn get_inner_scope(&mut self) -> &mut super::Scope {
         self.scopes.last_mut().unwrap()
     }
@@ -286,6 +292,8 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         })
     }
 
+    /// Check the validity of a given expression as well as insert the appropriate
+    /// instructions into the final IR.
     fn check_expr(&mut self, expr: &parsing::Expression) -> super::Result<super::Type> {
         match expr {
             parsing::Expression::Variable { pos: _, identifier } => {
@@ -425,6 +433,8 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         }
     }
 
+    /// Ensure the two sub-expressions of an arithmetic expression are both of
+    /// Num type. Insert the relevant final IR instruction also.
     fn verify_arithmetic_expr(&mut self, left: &parsing::Expression, right: &parsing::Expression, instruction: super::Instruction, expr_type: &str) -> super::Result<()> {
         log::trace!("Verifying types of {} expression - Num type on both sides of operator expected", expr_type);
 
