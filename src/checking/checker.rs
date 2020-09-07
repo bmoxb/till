@@ -18,9 +18,8 @@ pub struct Checker<T: Iterator<Item=parsing::Statement>> {
     /// Holds the primitive instructions that will make up the final immediate
     /// representation of the input program.
     final_ir: Vec<super::Instruction>,
-    /// Counter for creating unique IDs for variables. Incremented each time a
-    /// new variable is created.
-    var_id_counter: super::VarId
+    /// Counter for creating unique IDs. Incremented each time a ID is required.
+    id_counter: super::Id
 }
 
 impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
@@ -29,7 +28,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
             stmts,
             scopes: Vec::new(),
             final_ir: Vec::new(),
-            var_id_counter: 0
+            id_counter: 0
         }
     }
 
@@ -65,11 +64,28 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                 Ok(None)
             }
 
-            parsing::Statement::If { condition, block } |
             parsing::Statement::While { condition, block } => {
-                // TODO: Final IR instructions
-                self.expect_expr_type(condition, super::Type::Bool)?;
+                let id = self.new_id();
+                self.final_ir.push(super::Instruction::Label(id));
+
                 let (block_ret_type, _) = self.check_block(block, &Vec::new())?;
+
+                self.expect_expr_type(condition, super::Type::Bool)?;
+                self.final_ir.push(super::Instruction::JumpIfTrue(id));
+
+                Ok(block_ret_type)
+            }
+
+            parsing::Statement::If { condition, block } => {
+                let skip_block_id = self.new_id();
+
+                self.expect_expr_type(condition, super::Type::Bool)?;
+                self.final_ir.push(super::Instruction::JumpIfFalse(skip_block_id));
+
+                let (block_ret_type, _) = self.check_block(block, &Vec::new())?;
+
+                self.final_ir.push(super::Instruction::Label(skip_block_id));
+
                 Ok(block_ret_type)
             }
 
@@ -135,6 +151,8 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
             }
 
             parsing::Statement::FunctionDefinition { identifier, parameters, return_type, body } => {
+                // TODO: Final IR...
+
                 let (optional_body_return_type, param_types) = self.check_block(body, parameters)?;
 
                 // Is a function with the same identifier and type signature
@@ -263,14 +281,12 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
     }
 
     /// Introduce a new variable into the current inner most scope.
-    fn introduce_variable_to_inner_scope(&mut self, ident: &str, var_type: super::Type) -> super::VarId {
-        let id = self.var_id_counter;
+    fn introduce_variable_to_inner_scope(&mut self, ident: &str, var_type: super::Type) -> super::Id {
+        let id = self.new_id();
         
         self.get_inner_scope().variable_defs.push(super::VariableDef {
             var_type, identifier: ident.to_string(), id
         });
-        
-        self.var_id_counter += 1;
 
         id
     }
@@ -284,12 +300,22 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         Err(super::Failure::FunctionNotInScope(ident.to_string(), params.to_vec()))
     }
 
-    fn introduce_function(&mut self, ident: &str, params: &[super::Type], return_type: Option<super::Type>) {
+    fn introduce_function(&mut self, ident: &str, params: &[super::Type], return_type: Option<super::Type>) -> super::Id {
+        let id = self.new_id();
+
         self.get_inner_scope().function_defs.push(super::FunctionDef {
             identifier: ident.to_string(),
             parameter_types: params.to_vec(),
-            return_type
-        })
+            return_type, id
+        });
+
+        id
+    }
+
+    fn new_id(&mut self) -> super::Id {
+        let id = self.id_counter;
+        self.id_counter += 1;
+        id
     }
 
     /// Check the validity of a given expression as well as insert the appropriate
@@ -469,12 +495,13 @@ mod tests {
         assert!(chkr.variable_lookup("outer").is_ok());
         assert!(chkr.variable_lookup("undefined").is_err());
 
+        chkr.id_counter = 0;
         chkr.introduce_function("xyz", &[checking::Type::Char], Some(checking::Type::Num));
         
         assert_eq!(chkr.function_lookup("xyz", &[checking::Type::Char]), Ok(&checking::FunctionDef {
             identifier: "xyz".to_string(),
             parameter_types: vec![checking::Type::Char],
-            return_type: Some(checking::Type::Num)
+            return_type: Some(checking::Type::Num), id: 0
         }));
 
         assert!(chkr.function_lookup("xyz", &[checking::Type::Num]).is_err());

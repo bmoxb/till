@@ -80,14 +80,14 @@ impl Scope {
     }
 }
 
-type VarId = usize;
+type Id = usize;
 
 /// Definition of a variable with a given identifier and type.
 #[derive(Debug, PartialEq)]
 struct VariableDef {
     identifier: String,
     var_type: Type,
-    id: VarId
+    id: Id
 }
 
 /// Definition of a function with an identifier, set of parameters, and a return
@@ -96,13 +96,14 @@ struct VariableDef {
 struct FunctionDef {
     identifier: String,
     parameter_types: Vec<Type>,
-    return_type: Option<Type>
+    return_type: Option<Type>,
+    id: Id
 }
 
 #[derive(Debug, PartialEq)]
 pub enum Value {
     /// Value is determined by that of the variable with the specified ID.
-    Variable(VarId),
+    Variable(Id),
     Num(f64),
     Char(char),
     Bool(bool)
@@ -112,23 +113,36 @@ pub enum Value {
 /// immediate representation of a till program.
 #[derive(Debug)]
 pub enum Instruction {
-    Allocate(VarId),
-    Deallocate(VarId),
+    /// Allocate space for the storage of a variable with a given ID.
+    Allocate(Id),
+    /// Deallocate the space used by the variable with the given ID.
+    Deallocate(Id),
     /// Push the specified value onto the stack.
     Push(Value),
     /// Pop a value off the stack and store it in the specified location.
-    Store(VarId),
+    Store(Id),
+    /// Pop 2 items off the stack, push true if they are equal, false otherwise.
     Equals,
     GreaterThan,
     LessThan,
-    Add, // Pop top of stack, add to specified, push result
-    Subtract, // Pop top of stack, subtract from specified, push result
-    Multiply, // Pop top of stack, multiply with specified, push result
-    Divide, // Pop top of stack, divide by specified, push result
-    Not, // Pop top of stack, perform boolean not and push result
-    Call(Value), // Jump to specified, return here when Instruction::Return encountered
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    /// Pop top of stack, perform boolean not, push result.
+    Not,
+    /// Identify a point in the series of instructions that can be jumped to (e.g.
+    /// the beginning of a function or loop).
+    Label(Id),
+    /// Jump to function specified by the given ID, return here when return
+    /// instruction encountered.
+    Call(Id),
     /// Return from call, returning value on top of stack.
     ReturnValue,
     /// Return from call without including a value.
-    ReturnVoid
+    ReturnVoid,
+    /// Pop a value off the stack, if that value is true then jump to the particular
+    /// label indicated by the given ID.
+    JumpIfTrue(Id),
+    JumpIfFalse(Id)
 }
