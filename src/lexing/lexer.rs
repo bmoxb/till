@@ -13,7 +13,6 @@ impl fmt::Display for Token {
             TokenType::Identifier(_) => "identifier",
             TokenType::TypeIdentifier(_) => "type identifier",
             TokenType::NumberLiteral(_) |
-            TokenType::StringLiteral(_) |
             TokenType::CharLiteral(_) => "literal",
             TokenType::IfKeyword |
             TokenType::WhileKeyword |
@@ -37,19 +36,15 @@ pub enum TokenType {
     TypeIdentifier(String),
 
     NumberLiteral(f64),
-    StringLiteral(String),
     CharLiteral(char),
-
+    FalseKeyword, // false
+    ReturnKeyword, // return
     IfKeyword, // if
     WhileKeyword, // while
     TrueKeyword, // true
-    FalseKeyword, // false
-    ReturnKeyword, // return
 
     BracketOpen, // (
     BracketClose, // )
-    BracketSquareOpen, // [
-    BracketSquareClose, // ]
 
     DoubleEquals, // ==
     Arrow, // ->
@@ -74,7 +69,6 @@ pub enum StateKey {
     Integer, PotentialReal, Real,
     IdentifierOrKeyword, TypeIdentifier,
     Newline,
-    PotentialString, StringEscapeSequence, StringLiteral,
     BeginChar, CharEnd, CharEscapeSequence, CharLiteral,
     Minus,
     Equals,
@@ -114,10 +108,6 @@ lazy_static::lazy_static! {
                     super::Transition {
                         match_by: super::Match::ByChar('\n'),
                         to: super::Dest::To(StateKey::Newline)
-                    },
-                    super::Transition {
-                        match_by: super::Match::ByChar('"'),
-                        to: super::Dest::To(StateKey::PotentialString)
                     },
                     super::Transition {
                         match_by: super::Match::ByChar('\''),
@@ -241,65 +231,6 @@ lazy_static::lazy_static! {
             }
         );
 
-        /* STRING LITERALS */
-
-        states.insert(
-            StateKey::PotentialString,
-            super::State {
-                parse: super::Parse::Invalid,
-                transitions: vec![
-                    super::Transition {
-                        match_by: super::Match::ByChar('\\'),
-                        to: super::Dest::To(StateKey::StringEscapeSequence)
-                    },
-                    super::Transition {
-                        match_by: super::Match::ByChar('"'),
-                        to: super::Dest::To(StateKey::StringLiteral)
-                    },
-                    super::Transition {
-                        match_by: super::Match::Any, // I.e. not \ or " character
-                        to: super::Dest::ToSelf
-                    }
-                ]
-            }
-        );
-
-        states.insert(
-            StateKey::StringEscapeSequence,
-            super::State {
-                parse: super::Parse::Invalid,
-                transitions: vec![
-                    super::Transition {
-                        match_by: super::Match::ByChars(vec!['n', 't', '\\', '"']),
-                        to: super::Dest::To(StateKey::PotentialString)
-                    }
-                ]
-            }
-        );
-
-        states.insert(
-            StateKey::StringLiteral,
-            super::State {
-                parse: super::Parse::ByFunction(&|lexeme| {
-                    let mut literal = String::new();
-
-                    if lexeme != "\"\"" {
-                        let mut iter = lexeme[1..lexeme.len()-1].chars();
-                        
-                        while let Some(chr) = iter.next() {
-                            literal.push(
-                                if chr == '\\' { char_to_escape_sequence(iter.next().unwrap()) }
-                                else { chr }
-                            );
-                        }
-                    }
-
-                    TokenType::StringLiteral(literal)
-                }),
-                transitions: vec![]
-            }
-        );
-
         /* CHARACTER LITERALS */
 
         states.insert(
@@ -411,8 +342,6 @@ lazy_static::lazy_static! {
 
                         "(" => TokenType::BracketOpen,
                         ")" => TokenType::BracketClose,
-                        "[" => TokenType::BracketSquareOpen,
-                        "]" => TokenType::BracketSquareClose,
                         ">" => TokenType::GreaterThan,
                         "<" => TokenType::LessThan,
                         "," => TokenType::Comma,
@@ -539,16 +468,6 @@ mod tests {
     }
 
     #[test]
-    fn string_literals() {
-        input(Stream::from_str("\"\" \"hello\\tworld\" \"世界\" \"\\n\\t\\\"\\\\\" \"not terminated..."))
-        .assert_next(TokenType::StringLiteral("".to_string()))
-        .assert_next(TokenType::StringLiteral("hello\tworld".to_string()))
-        .assert_next(TokenType::StringLiteral("世界".to_string()))
-        .assert_next(TokenType::StringLiteral("\n\t\"\\".to_string()))
-        .assert_unexpected_eof_next();
-    }
-
-    #[test]
     fn char_literals() {
         input(Stream::from_str("'' 'a' 'わ' '\\'' '\\n'"))
         .assert_next(TokenType::CharLiteral('\0'))
@@ -574,9 +493,8 @@ mod tests {
 
     #[test]
     fn other_tokens() {
-        input(Stream::from_str("() [] > < , + / * ^ ! ~"))
+        input(Stream::from_str("() > < , + / * ^ ! ~"))
         .assert_next(TokenType::BracketOpen).assert_next(TokenType::BracketClose)
-        .assert_next(TokenType::BracketSquareOpen).assert_next(TokenType::BracketSquareClose)
         .assert_next(TokenType::GreaterThan)
         .assert_next(TokenType::LessThan)
         .assert_next(TokenType::Comma)

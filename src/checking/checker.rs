@@ -393,46 +393,6 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                 Ok(super::Type::Num)
             }
 
-            parsing::Expression::Array(exprs) => {
-                let size = exprs.len();
-
-                let contained_type = 
-                    if exprs.is_empty() { super::Type::Any } // can't infer type of empty literal...
-                    else { self.check_expr(&exprs[0])? };
-
-                for expr in exprs.iter().skip(1) {
-                    let expr_type = self.check_expr(expr)?;
-
-                    if contained_type != expr_type {
-                        return Err(super::Failure::UnexpectedType {
-                            expected: contained_type,
-                            encountered: expr_type
-                        })
-                    }
-                }
-
-                self.final_ir.push(super::Instruction::Push(super::Value::Array(size)));
-
-                Ok(super::Type::Array {
-                    contained_type: Box::new(contained_type), size
-                })
-            }
-
-            parsing::Expression::StringLiteral { pos: _, value } => {
-                let size = value.len();
-
-                for chr in value.chars() {
-                    self.final_ir.push(super::Instruction::Push(
-                        super::Value::Char(chr)
-                    ));
-                }
-
-                self.final_ir.push(super::Instruction::Push(super::Value::Array(size)));
-
-                Ok(super::Type::Array { 
-                    contained_type: Box::new(super::Type::Char), size
-                })
-            }
             parsing::Expression::NumberLiteral {pos: _, value } => {
                 self.final_ir.push(super::Instruction::Push(super::Value::Num(*value)));
 
@@ -537,36 +497,6 @@ mod tests {
         assert_eq!(
             chkr.check_expr(&parsing::Expression::CharLiteral { pos: Position::new(), value: '話' }),
             Ok(checking::Type::Char)
-        );
-
-        assert_eq!(
-            chkr.check_expr(&parsing::Expression::StringLiteral { pos: Position::new(), value: "string".to_string() }),
-            Ok(checking::Type::Array {
-                contained_type: Box::new(checking::Type::Char),
-                size: 6
-            })
-        );
-
-        assert_eq!(
-            chkr.check_expr(&parsing::Expression::Array(vec![
-                parsing::Expression::NumberLiteral { pos: Position::new(), value: 0.1 },
-                parsing::Expression::NumberLiteral { pos: Position::new(), value: 0.2 }
-            ])),
-            Ok(checking::Type::Array {
-                contained_type: Box::new(checking::Type::Num),
-                size: 2
-            })
-        );
-
-        assert_eq!(
-            chkr.check_expr(&parsing::Expression::Array(vec![
-                parsing::Expression::CharLiteral { pos: Position::new(), value: 'a' },
-                parsing::Expression::BooleanLiteral { pos: Position::new(), value: true }
-            ])),
-            Err(checking::Failure::UnexpectedType {
-                expected: checking::Type::Char,
-                encountered: checking::Type::Bool
-            })
         );
 
         assert_eq!(
@@ -712,55 +642,19 @@ mod tests {
         );
 
         assert_eq!(
-            chkr.check_stmt(&parsing::Statement::While {
-                condition: parsing::Expression::StringLiteral { pos: Position::new(), value: "oops!".to_string() },
-                block: vec![]
-            }),
-            Err(checking::Failure::UnexpectedType {
-                expected: checking::Type::Bool,
-                encountered: checking::Type::Array {
-                    contained_type: Box::new(checking::Type::Char),
-                    size: 5
-                }
-            })
-        );
-
-        assert_eq!(
             chkr.check_stmt(&parsing::Statement::VariableDeclaration {
                 identifier: "pi".to_string(),
-                var_type: parsing::Type::Identifier { pos: Position::new(), identifier: "Num".to_string() },
+                var_type: "Num".to_string(),
                 value: Some(parsing::Expression::NumberLiteral { pos: Position::new(), value: 3.14 })
             }),
             Ok(None)
         );
         assert!(chkr.variable_lookup("pi").is_ok());
 
-        // TODO
-        /*assert_eq!(
-            chkr.check_stmt(&parsing::Statement::VariableDeclaration {
-                identifier: "abc".to_string(),
-                var_type: parsing::Type::Array {
-                    contained_type: Box::new(parsing::Type::Identifier { pos: Position::new(), identifier: "Num".to_string() }),
-                    size: 5
-                },
-                value: Some(parsing::Expression::StringLiteral { pos: Position::new(), value: "nope!".to_string() })
-            }),
-            Err(checking::Failure::UnexpectedType {
-                encountered: checking::Type::Array {
-                    contained_type: Box::new(checking::Type::Char),
-                    size: 5
-                },
-                expected: checking::Type::Array {
-                    contained_type: Box::new(checking::Type::Num),
-                    size: 5
-                }
-            })
-        );*/
-
         assert_eq!(
             chkr.check_stmt(&parsing::Statement::VariableDeclaration {
                 identifier: "xyz".to_string(),
-                var_type: parsing::Type::Identifier { pos: Position::new(), identifier: "Oops".to_string() },
+                var_type: "Oops".to_string(),
                 value: None
             }),
             Err(checking::Failure::NonexistentPrimitiveType("Oops".to_string()))
@@ -800,9 +694,7 @@ mod tests {
             chkr.check_stmt(&parsing::Statement::FunctionDefinition {
                 identifier: "func".to_string(),
                 parameters: vec![],
-                return_type: Some(parsing::Type::Identifier {
-                    pos: Position::new(), identifier: "Num".to_string()
-                }),
+                return_type: Some("Num".to_string()),
                 body: vec![
                     parsing::Statement::Return(Some(parsing::Expression::NumberLiteral {
                         pos: Position::new(), value: 1.5
@@ -820,14 +712,10 @@ mod tests {
                 parameters: vec![
                     parsing::Parameter {
                         pos: Position::new(), identifier: "x".to_string(),
-                        param_type: parsing::Type::Identifier {
-                            pos: Position::new(), identifier: "Char".to_string()
-                        }
+                        param_type: "Char".to_string()
                     }
                 ],
-                return_type: Some(parsing::Type::Identifier {
-                    pos: Position::new(), identifier: "Num".to_string()
-                }),
+                return_type: Some("Num".to_string()),
                 body: vec![]
             }),
             Err(checking::Failure::FunctionDoesNotReturn(
@@ -858,14 +746,10 @@ mod tests {
                 parameters: vec![
                     parsing::Parameter {
                         pos: Position::new(), identifier: "x".to_string(),
-                        param_type: parsing::Type::Identifier {
-                            pos: Position::new(), identifier: "Num".to_string()
-                        }
+                        param_type: "Num".to_string()
                     }
                 ],
-                return_type: Some(parsing::Type::Identifier {
-                    pos: Position::new(), identifier: "Num".to_string()
-                }),
+                return_type: Some("Num".to_string()),
                 body: vec![
                     parsing::Statement::Return(Some(parsing::Expression::Variable {
                         pos: Position::new(), identifier: "x".to_string()
@@ -884,7 +768,7 @@ mod tests {
 
         chkr.check_stmt(&parsing::Statement::VariableDeclaration {
             identifier: "x".to_string(),
-            var_type: parsing::Type::Identifier { pos: Position::new(), identifier: "Num".to_string() },
+            var_type: "Num".to_string(),
             value: None
         })?;
 
@@ -894,7 +778,7 @@ mod tests {
         // same name but a different type:
         chkr.check_stmt(&parsing::Statement::VariableDeclaration {
             identifier: "x".to_string(),
-            var_type: parsing::Type::Identifier { pos: Position::new(), identifier: "Bool".to_string() },
+            var_type: "Bool".to_string(),
             value: None
         })?;
 
@@ -907,7 +791,7 @@ mod tests {
         assert_eq!(
             chkr.check_stmt(&parsing::Statement::VariableDeclaration {
                 identifier: "x".to_string(),
-                var_type: parsing::Type::Identifier { pos: Position::new(), identifier: "Char".to_string() },
+                var_type: "Char".to_string(),
                 value: None
             }),
             Err(checking::Failure::RedeclaredToDifferentType {

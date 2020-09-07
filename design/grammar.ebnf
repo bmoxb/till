@@ -12,13 +12,11 @@
 
 <while> ::= "while" <expr> <block>
 
-<function> ::= identifier "(" (<param> ("," <param>)*)? ")" ("->" <type>)? <block>
+<function> ::= identifier "(" (<param> ("," <param>)*)? ")" ("->" typeidentifier)? <block>
 
-<param> ::= <type> identifier
+<param> ::= typeidentifier identifier
 
-<type> ::= typeidentifier ("[" number? "]")*
-
-<declaration> ::= <type> identifier ("=" <expr>)?
+<declaration> ::= typeidentifier identifier ("=" <expr>)?
 
 <assignment> ::= identifier "=" <expr>
 
@@ -37,7 +35,6 @@
 <unary> ::= ("!"|"~") <unary> | <primary>
 
 <primary> ::= number | string | character | "true" | "false"
-            | "[" <exprs>? "]" | "(" <expr> ")"
-            | identifier ("(" <exprs>? ")")?
+            | "(" <expr> ")" | identifier ("(" <exprs>? ")")?
 
 <exprs> ::= <expr> ("," <expr>)*

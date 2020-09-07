@@ -4,8 +4,7 @@
 
 pub mod checker;
 
-use crate::parsing;
-use std::{ fmt, cmp, mem };
+use std::fmt;
 
 #[derive(Debug, PartialEq)]
 pub enum Failure { // TODO: Show stream position in error messages.
@@ -27,70 +26,28 @@ impl fmt::Display for Failure {
             Failure::FunctionNotInScope(ident, params) => write!(f, "Call made to function '{}' with parameter types {:?} which is either undefined or inaccessible from the current scope", ident, params),
             Failure::VoidFunctionInExpr(ident, params) => write!(f, "Function '{}' with parameter types {:?} has no return value and so cannot be used in an expression", ident, params),
             Failure::RedefinedExistingFunction(ident, params) => write!(f, "Function '{}' with parameter types {:?} has already been defined", ident, params),
-            Failure::VoidFunctionReturnsValue(ident, params, ret_type) => write!(f, "Function '{}' with parameter types {:?} defined without return type yet has a block that returns a value of type {}", ident, params, ret_type),
-            Failure::FunctionDoesNotReturn(ident, params, ret_type) => write!(f, "Function '{}' with parameter types {:?} expected to return a value of type {}", ident, params, ret_type),
+            Failure::VoidFunctionReturnsValue(ident, params, ret_type) => write!(f, "Function '{}' with parameter types {:?} defined without return type yet has a block that returns a value of type {:?}", ident, params, ret_type),
+            Failure::FunctionDoesNotReturn(ident, params, ret_type) => write!(f, "Function '{}' with parameter types {:?} expected to return a value of type {:?}", ident, params, ret_type),
             Failure::NonexistentPrimitiveType(ident) => write!(f, "The primitive type '{}' does not exist - please use either 'Num', 'Char' or 'Bool'", ident),
-            Failure::RedeclaredToDifferentType { identifier, expected, encountered } => write!(f, "Attempt made to redeclare variable '{}' of type {} to different type {} in the same scope", identifier, expected, encountered),
-            Failure::UnexpectedType { expected, encountered } => write!(f, "Expected type {} yet enountered {}", expected, encountered)
+            Failure::RedeclaredToDifferentType { identifier, expected, encountered } => write!(f, "Attempt made to redeclare variable '{}' of type {:?} to different type {:?} in the same scope", identifier, expected, encountered),
+            Failure::UnexpectedType { expected, encountered } => write!(f, "Expected type {:?} yet enountered {:?}", expected, encountered)
         }
     }
 }
 
 type Result<T> = std::result::Result<T, Failure>;
 
-/// Represents the types available in till. `Char`, `Num`, and `Bool` are
-/// self-explanatory primitive types, `Array` is a type indiciating a collection
-/// of elements of a given type, `Any` will match with any primitive type but
-/// not with an array type.
-#[derive(Clone, Debug)]
-pub enum Type {
-    Array { contained_type: Box<Type>, size: usize },
-    Char, Num, Bool,
-    Any
-}
+/// Represents the types available in till: `Char`, `Num`, and `Bool`.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Type { Char, Num, Bool }
 
 impl Type {
-    fn from_parsing_type(ptype: &parsing::Type) -> Result<Type> {
-        match ptype {
-            parsing::Type::Identifier { pos: _, identifier } => {
-                match identifier.as_str() {
-                    "Char" => Ok(Type::Char),
-                    "Num" => Ok(Type::Num),
-                    "Bool" => Ok(Type::Bool),
-                    _ => Err(Failure::NonexistentPrimitiveType(identifier.clone()))
-                }
-            }
-
-            parsing::Type::Array { contained_type, size } => Ok(Type::Array {
-                contained_type: Box::new(Type::from_parsing_type(contained_type)?),
-                size: size.unwrap() // TODO
-            })
-        }
-    }
-}
-
-impl fmt::Display for Type {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Type::Array { contained_type, size } => write!(f, "{}[{}]", contained_type, size),
-            Type::Any => write!(f, "???"),
-            other => write!(f, "{:?}", other)
-        }
-    }
-}
-
-impl cmp::PartialEq for Type {
-    fn eq(&self, other: &Type) -> bool {
-        match (self, other) {
-            (
-                Type::Array { contained_type: left, size: _ },
-                Type::Array { contained_type: right, size: _ }
-            ) => *left == *right,
-            (Type::Array { contained_type: _, size: _ }, _) => false,
-            (_, Type::Array { contained_type: _, size: _ }) => false,
-            (Type::Any, _) => true,
-            (_, Type::Any) => true,
-            _ => mem::discriminant(self) == mem::discriminant(other)
+    fn from_parsing_type(ident: &str) -> Result<Type> {
+        match ident {
+            "Char" => Ok(Type::Char),
+            "Num" => Ok(Type::Num),
+            "Bool" => Ok(Type::Bool),
+            _ => Err(Failure::NonexistentPrimitiveType(ident.to_string()))
         }
     }
 }
@@ -148,10 +105,7 @@ pub enum Value {
     Variable(VarId),
     Num(f64),
     Char(char),
-    Bool(bool),
-    /// The argument indicates the size of the array - that number of items at
-    /// the top of the stack are considered the elements of this array.
-    Array(usize)
+    Bool(bool)
 }
 
 /// Represents the simple, assembly-like instructions that make up the final

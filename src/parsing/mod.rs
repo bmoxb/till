@@ -15,8 +15,7 @@ use std::fmt;
 pub enum Failure {
     UnexpectedToken(lexer::Token, &'static str),
     UnexpectedStreamEnd(&'static str),
-    UnexpectedIndent { expected_indent: usize, encountered_indent: usize },
-    InvalidArraySize(f64)
+    UnexpectedIndent { expected_indent: usize, encountered_indent: usize }
 }
 
 impl fmt::Display for Failure {
@@ -25,8 +24,7 @@ impl fmt::Display for Failure {
             Failure::UnexpectedToken(tok, expected) => write!(f, "Expected {} yet encountered unexpected {}", expected, tok),
             Failure::UnexpectedStreamEnd(expected) => write!(f, "Encountered the end of the token stream yet expected {}", expected),
             Failure::UnexpectedIndent { expected_indent, encountered_indent } =>
-                write!(f, "Encountered an unexpected change in indentation from the expected level of {} to an indentation level of {} tabs", expected_indent, encountered_indent),
-            Failure::InvalidArraySize(num) => write!(f, "Array size {} is invalid as the size of an array must be a positive integer", num)
+                write!(f, "Encountered an unexpected change in indentation from the expected level of {} to an indentation level of {} tabs", expected_indent, encountered_indent)
         }
     }
 }
@@ -50,12 +48,12 @@ pub enum Statement {
     FunctionDefinition {
         identifier: String,
         parameters: Vec<Parameter>,
-        return_type: Option<Type>,
+        return_type: Option<String>,
         body: Block
     },
 
     VariableDeclaration {
-        var_type: Type,
+        var_type: String,
         identifier: String,
         value: Option<Expression>
     },
@@ -73,15 +71,9 @@ pub type Block = Vec<Statement>;
 /// Parameter for a function definition.
 #[derive(Debug, PartialEq)]
 pub struct Parameter {
-    pub param_type: Type,
+    pub param_type: String,
     pub identifier: String,
     pub pos: stream::Position
-}
-
-#[derive(Debug, PartialEq)]
-pub enum Type {
-    Identifier { pos: stream::Position, identifier: String },
-    Array { contained_type: Box<Type>, size: Option<usize> }
 }
 
 /// Represents a till expression.
@@ -94,12 +86,11 @@ pub enum Expression {
     Subtract(Box<Expression>, Box<Expression>),
     Multiply(Box<Expression>, Box<Expression>),
     Divide(Box<Expression>, Box<Expression>),
+
     BooleanNot(Box<Expression>),
     UnaryMinus(Box<Expression>),
-    Array(Vec<Expression>),
 
     NumberLiteral { pos: stream::Position, value: f64 },
-    StringLiteral { pos: stream::Position, value: String },
     CharLiteral { pos: stream::Position, value: char },
     BooleanLiteral { pos: stream::Position, value: bool },
     Variable { pos: stream::Position, identifier: String },

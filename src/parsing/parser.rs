@@ -2,6 +2,7 @@
 //! instances.
 
 use crate::lexing::lexer;
+use crate::stream;
 use std::iter;
 
 /// Returns an iterator that yields abstract syntax representations for each
@@ -130,7 +131,6 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
             }
 
             // Variable declaration:
-            lexer::TokenType::BracketSquareOpen |
             lexer::TokenType::TypeIdentifier(_) => self.variable_declaration_stmt(),
 
             // Return:
@@ -187,7 +187,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
         self.consume_token_of_expected_type(&lexer::TokenType::BracketClose, "close bracket ) token")?;
 
         let return_type = if self.consume_token_if_type(&lexer::TokenType::Arrow, "function definition")?.is_some() {
-            Some(self.parse_type()?)
+            Some(self.consume_type_identifier("function return type")?)
         }
         else { None };
 
@@ -203,10 +203,8 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     ///
     /// `<declaration> ::= <type> identifier ("=" <expr>)?`
     fn variable_declaration_stmt(&mut self) -> super::Result<super::Statement> {
-        let var_type = self.parse_type()?;
-        
-        let identifier_tok = self.consume_token("variable identifier")?;
-        let identifier = extract_string_from_identifier_token(identifier_tok, "variable identifier")?;
+        let var_type = self.consume_type_identifier("variable type")?;
+        let (identifier, _) = self.consume_identifier("variable identifier")?;
 
         // Variable declaration can optionally include a value for said variable:
         let value = if self.consume_token_if_type(&lexer::TokenType::Equals, "varriable declaration").unwrap_or(None).is_some() {
@@ -240,56 +238,12 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
         Ok(super::Statement::Return(self.expression().ok()))
     }
 
-    /// `<type> ::= typeidentifier ("[" number? "]")*`
-    fn parse_type(&mut self) -> super::Result<super::Type> {
-        let tok = self.consume_token("type")?;
-
-        let mut parsed_type = match tok.tok_type {
-            lexer::TokenType::TypeIdentifier(identifier) => super::Type::Identifier {
-                pos: tok.lexeme.pos, identifier
-            },
-
-            _ => return Err(super::Failure::UnexpectedToken(tok, "type"))
-        };
-
-        while self.consume_token_if_type(&lexer::TokenType::BracketSquareOpen, "").unwrap_or(None).is_some() {
-            let tok = self.consume_token("array type size")?;
-
-            let array_size = match tok.tok_type {
-                lexer::TokenType::NumberLiteral(num) => {
-                    self.consume_token_of_expected_type(&lexer::TokenType::BracketSquareClose, "closing bracket ] in type")?;
-
-                    if num > 0.0 && num % 1.0 == 0.0 { // Positive integer?
-                        Some(num as usize)
-                    }
-                    else { return Err(super::Failure::InvalidArraySize(num)) }
-                }
-
-                lexer::TokenType::BracketSquareClose => { None }
-
-                _ => return Err(super::Failure::UnexpectedToken(tok, "array type size"))
-            };
-
-            parsed_type = super::Type::Array {
-                contained_type: Box::new(parsed_type),
-                size: array_size
-            };
-        }
-
-        Ok(parsed_type)
-    }
-
     /// `<param> ::= <type> identifier`
     fn parse_parameter(&mut self) -> super::Result<super::Parameter> {
-        let param_type = self.parse_type()?;
-        
-        let identifier_tok = self.consume_token("function parameter identifier")?;
-        let position = identifier_tok.lexeme.pos.clone();
+        let param_type = self.consume_type_identifier("function parameter type")?;
+        let (identifier, pos) = self.consume_identifier("function parameter identifier")?;
 
-        Ok(super::Parameter {
-            param_type, pos: position,
-            identifier: extract_string_from_identifier_token(identifier_tok, "function parameter identifier")?
-        })
+        Ok(super::Parameter { param_type, pos, identifier  })
     }
 
     /// Parse a block (a collection of one or more sequential statements that
@@ -457,27 +411,13 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
                 Ok(expr)
             }
 
-            // Array literals:
-            lexer::TokenType::BracketSquareOpen => {
-                let exprs = if self.check_type_of_peeked_token(&lexer::TokenType::BracketSquareClose, "array literal")? {
-                    vec![] // Obviously an empty array literal `[]` should a closing
-                           // bracket token immediately follow the opening one.
-                }
-                else { self.expressions()? };
-                
-                self.consume_token_of_expected_type(&lexer::TokenType::BracketSquareClose, "array literal closing square bracket ] token")?;
-                
-                Ok(super::Expression::Array(exprs))
-            }
-
             lexer::TokenType::Identifier(identifier) => {
                 // If open bracket follows identifier, then this must be a function
                 // call:
                 if self.consume_token_if_type(&lexer::TokenType::BracketOpen, "primary expression").unwrap_or(None).is_some() {
                     let args = if self.check_type_of_peeked_token(&lexer::TokenType::BracketClose, "function call")? {
-                        vec![] // As with array literal above, an immediately
-                               // following closing brackets means a function
-                               // without any arguments.
+                        vec![] // Closing bracket immediately following an opening
+                               // bracket indicates a function taking no arguments.
                     }
                     else { self.expressions()? };
 
@@ -494,7 +434,6 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
             }
 
             lexer::TokenType::NumberLiteral(value) => Ok(super::Expression::NumberLiteral { value, pos: tok.lexeme.pos }),
-            lexer::TokenType::StringLiteral(value) => Ok(super::Expression::StringLiteral { value, pos: tok.lexeme.pos }),
             lexer::TokenType::CharLiteral(value) => Ok(super::Expression::CharLiteral { value, pos: tok.lexeme.pos }),
             lexer::TokenType::TrueKeyword => Ok(super::Expression::BooleanLiteral { value: true, pos: tok.lexeme.pos }),
             lexer::TokenType::FalseKeyword => Ok(super::Expression::BooleanLiteral { value: false, pos: tok.lexeme.pos }),
@@ -515,14 +454,27 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
 
         Ok(exprs)
     }
-}
 
-fn extract_string_from_identifier_token(tok: lexer::Token, msg: &'static str) -> super::Result<String> {
-    match tok.tok_type {
-        lexer::TokenType::Identifier(x) => Ok(x),
-        _ => Err(super::Failure::UnexpectedToken(tok, msg))
+    fn consume_identifier(&mut self, msg: &'static str) -> super::Result<(String, stream::Position)> {
+        let tok = self.consume_token(msg)?;
+
+        match tok.tok_type {
+            lexer::TokenType::Identifier(ident) => Ok((ident, tok.lexeme.pos)),
+            _ => Err(super::Failure::UnexpectedToken(tok, msg))
+        }
+    }
+
+    fn consume_type_identifier(&mut self, msg: &'static str) -> super::Result<String> {
+        let tok = self.consume_token(msg)?;
+
+        match tok.tok_type {
+            lexer::TokenType::TypeIdentifier(ident) => Ok(ident),
+            _ => Err(super::Failure::UnexpectedToken(tok, msg))
+        }
     }
 }
+
+
 
 #[cfg(test)]
 #[allow(illegal_floating_point_literal_pattern)]
@@ -545,15 +497,11 @@ mod tests {
 
     #[test]
     fn literal_primary_exprs() {
-        let mut prsr = quick_parse("10.5 true false \"string\" '日'");
+        let mut prsr = quick_parse("10.5 true false '日'");
         
         assert_pattern!(prsr.primary_expr(), Ok(parsing::Expression::NumberLiteral { pos: _, value: 10.5 }));
         assert_pattern!(prsr.primary_expr(), Ok(parsing::Expression::BooleanLiteral { pos: _, value: true }));
         assert_pattern!(prsr.primary_expr(), Ok(parsing::Expression::BooleanLiteral { pos: _, value: false }));
-        match prsr.primary_expr() {
-            Ok(parsing::Expression::StringLiteral { pos: _, value: x }) => { assert_eq!(x, "string".to_string()); }
-            _ => panic!()
-        }
         match prsr.primary_expr() {
             Ok(parsing::Expression::CharLiteral { pos: _, value: x }) => { assert_eq!(x, '日'); }
             _ => panic!()
@@ -587,23 +535,6 @@ mod tests {
             }
             _ => panic!()
         }
-    }
-
-    #[test]
-    fn array_primary_exprs() {
-        match quick_parse("[10, 3 + 1]").primary_expr() {
-            Ok(parsing::Expression::Array(itms)) => {
-                assert_eq!(itms.len(), 2);
-
-                assert_pattern!(itms[0], parsing::Expression::NumberLiteral { pos: _, value: 10.0 });
-                assert_pattern!(itms[1], parsing::Expression::Add(_, _));
-            }
-            _ => panic!()
-        }
-
-        assert_pattern!(quick_parse("[]").expression(), Ok(parsing::Expression::Array(_)));
-        
-        assert_pattern!(quick_parse("[1, 2").primary_expr(), Err(parsing::Failure::UnexpectedStreamEnd(_)));
     }
 
     #[test]
@@ -650,46 +581,13 @@ mod tests {
     }
 
     #[test]
-    fn types() {
-        match quick_parse("Num").parse_type() {
-            Ok(parsing::Type::Identifier { pos: _, identifier }) => {
-                assert_eq!(identifier, "Num".to_string());
-            }
-            _ => panic!()
-        }
-
-        assert_pattern!(
-            quick_parse("Num[2]").parse_type(),
-            Ok(parsing::Type::Array { contained_type: _, size: Some(2) })
-        );
-
-        assert_eq!(
-            quick_parse("Num[3.9]").parse_type(),
-            Err(parsing::Failure::InvalidArraySize(3.9))
-        );
-
-        assert_pattern!(
-            quick_parse("Char[]").parse_type(),
-            Ok(parsing::Type::Array { contained_type: _, size: None })
-        );
-
-        match quick_parse("Num[3][2]").parse_type() {
-            Ok(parsing::Type::Array { contained_type, size: Some(2) }) => {
-                assert_pattern!(*contained_type, parsing::Type::Array { contained_type: _, size: Some(3) });
-            }
-            _ => panic!()
-        }
-    }
-
-    #[test]
     fn variable_declaration_stmts() {
-        match quick_parse("Char[5] x").next().unwrap() {
+        match quick_parse("Char x").next().unwrap() {
             Ok(parsing::Statement::VariableDeclaration {
-                value: None,
-                var_type: parsing::Type::Array { contained_type: _, size: _ },
-                identifier
+                value: None, var_type, identifier
             }) => {
                 assert_eq!(identifier, "x".to_string());
+                assert_eq!(var_type, "Char".to_string());
             }
             _ => panic!()
         }
@@ -697,10 +595,10 @@ mod tests {
         match quick_parse("Num x = 2.5\n\n").next().unwrap() {
             Ok(parsing::Statement::VariableDeclaration {
                 value: Some(parsing::Expression::NumberLiteral { pos: _, value: 2.5}),
-                var_type: parsing::Type::Identifier { pos: _, identifier: _},
-                identifier
+                var_type, identifier
             }) => {
                 assert_eq!(identifier, "x".to_string());
+                assert_eq!(var_type, "Num".to_string());
             }
             _ => panic!()
         }
@@ -713,7 +611,7 @@ if x == 10
     Num y = 2
     y = y + x
 
-    if z == \"something\"
+    if z == 'a'
         if func(z)
             ty = y + 1
 
@@ -735,29 +633,29 @@ if x == 10
 
     #[test]
     fn function_parameters() {
-        assert_pattern!(
-            quick_parse("Num[2] my_param").parse_parameter(),
-            Ok(parsing::Parameter {
-                param_type: parsing::Type::Array { contained_type: _, size: Some(2) },
-                identifier: _, pos: _
-            }) 
-        )
+        match quick_parse("Num my_param").parse_parameter() {
+            Ok(parsing::Parameter { param_type, identifier, pos: _ }) => {
+                assert_eq!(param_type, "Num".to_string());
+                assert_eq!(identifier, "my_param".to_string());
+            }
+            _ => panic!()
+        }
     }
 
     #[test]
     fn function_definition_stmts() {
         let mut prsr = quick_parse("
-some_function(Num x, Num y) -> Num[2]
+some_function(Num x, Num y) -> Num
     if x > y
-        Num[2] z = [x - y, y - x]
-        
+        Num z = (x - y) * (y - x)
+    
 no_args()
-    Char[7] x = \"no args\"");
+    Char x = '\\n'");
 
         match prsr.next().unwrap() {
             Ok(parsing::Statement::FunctionDefinition {
                 identifier, parameters, body: _,
-                return_type: Some(parsing::Type::Array { contained_type: _, size: Some(2) })
+                return_type: Some(_)
             }) => {
                 assert_eq!(identifier, "some_function".to_string());
                 assert_eq!(parameters.len(), 2);
