@@ -63,7 +63,7 @@ impl Type {
 
             parsing::Type::Array { contained_type, size } => Ok(Type::Array {
                 contained_type: Box::new(Type::from_parsing_type(contained_type)?),
-                size: *size
+                size: size.unwrap() // TODO
             })
         }
     }

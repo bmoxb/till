@@ -240,14 +240,13 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
         Ok(super::Statement::Return(self.expression().ok()))
     }
 
-    /// `<type> ::= typeidentifier | <type> "[" number "]"`
+    /// `<type> ::= typeidentifier ("[" number? "]")*`
     fn parse_type(&mut self) -> super::Result<super::Type> {
-
         let tok = self.consume_token("type")?;
 
         let mut parsed_type = match tok.tok_type {
             lexer::TokenType::TypeIdentifier(identifier) => super::Type::Identifier {
-                pos:  tok.lexeme.pos, identifier
+                pos: tok.lexeme.pos, identifier
             },
 
             _ => return Err(super::Failure::UnexpectedToken(tok, "type"))
@@ -258,11 +257,15 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
 
             let array_size = match tok.tok_type {
                 lexer::TokenType::NumberLiteral(num) => {
+                    self.consume_token_of_expected_type(&lexer::TokenType::BracketSquareClose, "closing bracket ] in type")?;
+
                     if num > 0.0 && num % 1.0 == 0.0 { // Positive integer?
-                        num as usize
+                        Some(num as usize)
                     }
                     else { return Err(super::Failure::InvalidArraySize(num)) }
-                },
+                }
+
+                lexer::TokenType::BracketSquareClose => { None }
 
                 _ => return Err(super::Failure::UnexpectedToken(tok, "array type size"))
             };
@@ -271,8 +274,6 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
                 contained_type: Box::new(parsed_type),
                 size: array_size
             };
-
-            self.consume_token_of_expected_type(&lexer::TokenType::BracketSquareClose, "closing bracket ] in type")?;
         }
 
         Ok(parsed_type)
@@ -657,14 +658,27 @@ mod tests {
             _ => panic!()
         }
 
-        match quick_parse("Num[2]").parse_type() {
-            Ok(parsing::Type::Array { contained_type, size }) => {
-                assert_pattern!(*contained_type, parsing::Type::Identifier { pos: _, identifier: _});
-                assert_eq!(size, 2);
+        assert_pattern!(
+            quick_parse("Num[2]").parse_type(),
+            Ok(parsing::Type::Array { contained_type: _, size: Some(2) })
+        );
+
+        assert_eq!(
+            quick_parse("Num[3.9]").parse_type(),
+            Err(parsing::Failure::InvalidArraySize(3.9))
+        );
+
+        assert_pattern!(
+            quick_parse("Char[]").parse_type(),
+            Ok(parsing::Type::Array { contained_type: _, size: None })
+        );
+
+        match quick_parse("Num[3][2]").parse_type() {
+            Ok(parsing::Type::Array { contained_type, size: Some(2) }) => {
+                assert_pattern!(*contained_type, parsing::Type::Array { contained_type: _, size: Some(3) });
             }
             _ => panic!()
         }
-        // TODO: More tests...
     }
 
     #[test]
@@ -724,7 +738,7 @@ if x == 10
         assert_pattern!(
             quick_parse("Num[2] my_param").parse_parameter(),
             Ok(parsing::Parameter {
-                param_type: parsing::Type::Array { contained_type: _, size: 2 },
+                param_type: parsing::Type::Array { contained_type: _, size: Some(2) },
                 identifier: _, pos: _
             }) 
         )
@@ -743,7 +757,7 @@ no_args()
         match prsr.next().unwrap() {
             Ok(parsing::Statement::FunctionDefinition {
                 identifier, parameters, body: _,
-                return_type: Some(parsing::Type::Array { contained_type: _, size: 2 })
+                return_type: Some(parsing::Type::Array { contained_type: _, size: Some(2) })
             }) => {
                 assert_eq!(identifier, "some_function".to_string());
                 assert_eq!(parameters.len(), 2);

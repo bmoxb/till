@@ -81,7 +81,7 @@ pub struct Parameter {
 #[derive(Debug, PartialEq)]
 pub enum Type {
     Identifier { pos: stream::Position, identifier: String },
-    Array { contained_type: Box<Type>, size: usize }
+    Array { contained_type: Box<Type>, size: Option<usize> }
 }
 
 /// Represents a till expression.
