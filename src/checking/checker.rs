@@ -51,7 +51,8 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
     }
 
     /// Check the validity of a given statement. May return a type in the case of
-    /// the statement being a return statement.
+    /// the statement being a return statement or a while or if statement with a
+    /// block containing a return statement.
     fn check_stmt(&mut self, stmt: &parsing::Statement) -> super::Result<Option<super::Type>> {
         match stmt {
             parsing::Statement::Return(Some(expr)) => {
@@ -111,10 +112,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                     else {
                         log::trace!("Introducing variable '{}' to current scope", identifier);
 
-                        let var_id = self.introduce_variable_to_inner_scope(identifier, checking_type.clone());
-                        self.final_ir.push(super::Instruction::Allocate(var_id));
-
-                        var_id
+                        self.introduce_variable_to_inner_scope(identifier, checking_type.clone())
                     }
                 };
 
@@ -151,9 +149,19 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
             }
 
             parsing::Statement::FunctionDefinition { identifier, parameters, return_type, body } => {
-                // TODO: Final IR...
+                // Function body should only run when function is called so skip
+                // over the body:
+                let end_id = self.new_id();
+                self.final_ir.push(super::Instruction::Jump(end_id));
+
+                // Introduce the start label before the function body:
+                let start_id = self.new_id();
+                self.final_ir.push(super::Instruction::Label(start_id));
 
                 let (optional_body_return_type, param_types) = self.check_block(body, parameters)?;
+
+                // Introduce the end label after the function body:
+                self.final_ir.push(super::Instruction::Label(end_id));
 
                 // Is a function with the same identifier and type signature
                 // defined and accessible from this scope?
@@ -170,7 +178,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                         if let Some(body_return_type) = optional_body_return_type {
                             // Are those types the same?
                             if body_return_type == expected_return_type {
-                                self.introduce_function(identifier, param_types.as_slice(), Some(body_return_type));
+                                self.introduce_function(identifier, param_types.as_slice(), Some(body_return_type), start_id);
                                 Ok(None)
                             }
                             else {
@@ -196,7 +204,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                             ))
                         }
                         else {
-                            self.introduce_function(identifier, param_types.as_slice(), None);
+                            self.introduce_function(identifier, param_types.as_slice(), None, start_id);
                             Ok(None)
                         }
                     }
@@ -217,7 +225,14 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         let mut param_types = Vec::new();
         for param in params {
             let converted_type = super::Type::from_parsing_type(&param.param_type)?;
-            self.introduce_variable_to_inner_scope(&param.identifier, converted_type.clone());
+
+            let var_id = self.introduce_variable_to_inner_scope(&param.identifier, converted_type.clone());
+
+            // Function arguments are assumed to be placed on the stack before
+            // the function is called, so store those values in the parameter
+            // variables:
+            self.final_ir.push(super::Instruction::Store(var_id));
+
             param_types.push(converted_type);
         }
 
@@ -236,7 +251,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
             }
         }
 
-        self.end_scope();
+        self.end_scope(); // TODO: End scope just before return statement so parameters are deallocated!
 
         Ok((ret_type, param_types))
     }
@@ -280,13 +295,16 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         Err(super::Failure::VariableNotInScope(ident.to_string()))
     }
 
-    /// Introduce a new variable into the current inner most scope.
+    /// Introduce a new variable into the current inner most scope. Will also
+    /// insert final IR instruction to allocate space for this new variable.
     fn introduce_variable_to_inner_scope(&mut self, ident: &str, var_type: super::Type) -> super::Id {
         let id = self.new_id();
         
         self.get_inner_scope().variable_defs.push(super::VariableDef {
             var_type, identifier: ident.to_string(), id
         });
+
+        self.final_ir.push(super::Instruction::Allocate(id));
 
         id
     }
@@ -300,16 +318,13 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         Err(super::Failure::FunctionNotInScope(ident.to_string(), params.to_vec()))
     }
 
-    fn introduce_function(&mut self, ident: &str, params: &[super::Type], return_type: Option<super::Type>) -> super::Id {
-        let id = self.new_id();
-
+    fn introduce_function(&mut self, ident: &str, params: &[super::Type], return_type: Option<super::Type>, start_id: super::Id) {
         self.get_inner_scope().function_defs.push(super::FunctionDef {
             identifier: ident.to_string(),
             parameter_types: params.to_vec(),
-            return_type, id
+            id: start_id,
+            return_type
         });
-
-        id
     }
 
     fn new_id(&mut self) -> super::Id {
@@ -495,8 +510,7 @@ mod tests {
         assert!(chkr.variable_lookup("outer").is_ok());
         assert!(chkr.variable_lookup("undefined").is_err());
 
-        chkr.id_counter = 0;
-        chkr.introduce_function("xyz", &[checking::Type::Char], Some(checking::Type::Num));
+        chkr.introduce_function("xyz", &[checking::Type::Char], Some(checking::Type::Num), 0);
         
         assert_eq!(chkr.function_lookup("xyz", &[checking::Type::Char]), Ok(&checking::FunctionDef {
             identifier: "xyz".to_string(),
@@ -603,7 +617,7 @@ mod tests {
         );
         chkr.end_scope();
 
-        chkr.introduce_function("func", &[], Some(checking::Type::Num));
+        chkr.introduce_function("func", &[], Some(checking::Type::Num), 0);
 
         assert_eq!(
             chkr.check_expr(&parsing::Expression::FunctionCall {
@@ -625,7 +639,7 @@ mod tests {
             Err(checking::Failure::FunctionNotInScope("func".to_string(), vec![checking::Type::Num]))
         );
 
-        chkr.introduce_function("abc", &[checking::Type::Char], None);
+        chkr.introduce_function("abc", &[checking::Type::Char], None, 1);
 
         assert_eq!(
             chkr.check_expr(&parsing::Expression::FunctionCall {

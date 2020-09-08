@@ -141,6 +141,7 @@ pub enum Instruction {
     ReturnValue,
     /// Return from call without including a value.
     ReturnVoid,
+    Jump(Id),
     /// Pop a value off the stack, if that value is true then jump to the particular
     /// label indicated by the given ID.
     JumpIfTrue(Id),
