@@ -353,16 +353,19 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
             parsing::Expression::FunctionCall {pos: _, identifier, args } => {
                 log::trace!("Searching scope for the return type of referenced function '{}' given arguments {:?}", identifier, args);
 
-                // TODO: Produce final IR instructions
-
                 let mut arg_types = Vec::new();
                 for arg in args { arg_types.push(self.check_expr(arg)?) }
 
-                let definition = self.function_lookup(identifier, arg_types.as_slice())?;
-                
-                match &definition.return_type {
-                    Some(return_type) => Ok(return_type.clone()),
-                    None => Err(super::Failure::VoidFunctionInExpr(identifier.to_string(), arg_types))
+                let (ident, option_ret_type, id) = {
+                    let def = self.function_lookup(identifier, arg_types.as_slice())?;
+                    (def.identifier.clone(), def.return_type.clone(), def.id)
+                };
+
+                self.final_ir.push(super::Instruction::Call(id));
+
+                match option_ret_type {
+                    Some(ret_type) => Ok(ret_type.clone()),
+                    None => Err(super::Failure::VoidFunctionInExpr(ident, arg_types))
                 }
             }
 
