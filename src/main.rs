@@ -70,6 +70,8 @@ fn filter_map_func<T, E: fmt::Display>(value: Result<T, E>, compilation_stage: &
         value.ok()
     }
 
+/// Take a relative path in `&str` form and convert it into an absolute path
+/// contained within a `PathBuf`.
 fn to_full_path(relative: &str) -> PathBuf {
     let relative_path = Path::new(relative);
     
