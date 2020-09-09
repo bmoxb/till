@@ -41,14 +41,10 @@ fn compile(relative_in: &str, relative_out: &str) {
 
             let strm = stream::Stream::from_file(file);
 
-            let tokens = lexing::lexer::input(strm).filter_map(|x| filter_map_func(x, "lexical"));
-            let syntax_tree = parsing::parser::input(tokens).filter_map(|x| filter_map_func(x, "syntax"));
-            match checking::checker::input(syntax_tree) {
-                Ok(final_ir) => println!("{:#?}", final_ir),
-                Err(e) => println!("SEMANTIC ERROR: {}", e)
-            }
-            //let statements = checker.filter_map(|x| filter_map_func(x, "semantic"));
-            //println!("{:#?}", statements.collect::<Vec<parsing::Statement>>());
+            let tokens = lexing::lexer::input(strm).filter_map(|x| display_any_failures(x, "lexical"));
+            let syntax_tree = parsing::parser::input(tokens).filter_map(|x| display_any_failures(x, "syntax"));
+            let final_ir = display_any_failures(checking::checker::input(syntax_tree), "semantic").unwrap();
+            println!("{}", codegen::gennasm::input(final_ir));
         }
         Err(e) => {
             match e.kind() {
@@ -63,7 +59,7 @@ fn compile(relative_in: &str, relative_out: &str) {
     }
 }
 
-fn filter_map_func<T, E: fmt::Display>(value: Result<T, E>, compilation_stage: &str) -> Option<T> {
+fn display_any_failures<T, E: fmt::Display>(value: Result<T, E>, compilation_stage: &str) -> Option<T> {
         if let Err(e) = &value {
             println!("{} ERROR: {}", compilation_stage.to_ascii_uppercase(), e);
             std::process::exit(0);

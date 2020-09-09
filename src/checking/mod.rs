@@ -80,7 +80,7 @@ impl Scope {
     }
 }
 
-type Id = usize;
+pub type Id = usize;
 
 /// Definition of a variable with a given identifier and type.
 #[derive(Debug, PartialEq)]
