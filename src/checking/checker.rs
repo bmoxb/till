@@ -257,23 +257,20 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
     }
 
     /// Introduce a new, inner-most scope which is added to the end of the scope
-    /// stack.
+    /// stack. Will also insert a begin scope instruction into the final IR.
     fn begin_new_scope(&mut self) {
         self.scopes.push(super::Scope {
             variable_defs: Vec::new(),
             function_defs: Vec::new()
         });
+        self.final_ir.push(super::Instruction::BeginScope);
     }
 
-    /// End the current inner-most scope. Deallocation instructions for each
-    /// variable in this scope will be added to the final IR.
+    /// Remove the inner-most scope from the scopes stack. Will also insert an
+    /// end scope instruction into the final IR.
     fn end_scope(&mut self) {
-        if let Some(prev_scope) = self.scopes.pop() { // Remove scope from stack.
-            // Deallocate all variables belonging to that scope:
-            for var_def in prev_scope.variable_defs {
-                self.final_ir.push(super::Instruction::Deallocate(var_def.id));
-            }
-        }
+        self.scopes.pop();
+        self.final_ir.push(super::Instruction::EndScope);
     }
 
     /// Get a mutable reference to the current inner-most scope. Will panic if

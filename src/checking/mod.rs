@@ -113,14 +113,36 @@ pub enum Value {
 /// immediate representation of a till program.
 #[derive(Debug)]
 pub enum Instruction {
+    /// Begin a new scope. All variables allocated after this instruction will
+    /// be deallocated when either an end scope or return instruction is next
+    /// encountered.
+    BeginScope,
+    EndScope,
     /// Allocate space for the storage of a variable with a given ID.
     Allocate(Id),
-    /// Deallocate the space used by the variable with the given ID.
-    Deallocate(Id),
     /// Push the specified value onto the stack.
     Push(Value),
-    /// Pop a value off the stack and store it in the specified location.
+    /// Pop a value off the stack and store it in the specified variable.
     Store(Id),
+    /// Identify a point in the series of instructions that can be jumped to (e.g.
+    /// the beginning of a function or loop).
+    Label(Id),
+    /// Jump to function specified by the given ID, return here when return
+    /// instruction encountered.
+    Call(Id),
+    /// Return from call, returning value on top of stack. Will also result in
+    /// the deallocation of all variables allocated since the last begin scope
+    /// instruction.
+    ReturnValue,
+    /// Return from call without including a value. Also deallocates all variables
+    /// since the last begin scope instruction.
+    ReturnVoid,
+    /// Jump to a given label.
+    Jump(Id),
+    /// Pop a value off the stack, if that value is true then jump to the particular
+    /// label indicated by the given ID.
+    JumpIfTrue(Id),
+    JumpIfFalse(Id),
     /// Pop 2 items off the stack, push true if they are equal, false otherwise.
     Equals,
     GreaterThan,
@@ -130,20 +152,5 @@ pub enum Instruction {
     Multiply,
     Divide,
     /// Pop top of stack, perform boolean not, push result.
-    Not,
-    /// Identify a point in the series of instructions that can be jumped to (e.g.
-    /// the beginning of a function or loop).
-    Label(Id),
-    /// Jump to function specified by the given ID, return here when return
-    /// instruction encountered.
-    Call(Id),
-    /// Return from call, returning value on top of stack.
-    ReturnValue,
-    /// Return from call without including a value.
-    ReturnVoid,
-    Jump(Id),
-    /// Pop a value off the stack, if that value is true then jump to the particular
-    /// label indicated by the given ID.
-    JumpIfTrue(Id),
-    JumpIfFalse(Id)
+    Not
 }
