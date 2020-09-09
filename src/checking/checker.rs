@@ -251,7 +251,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
             }
         }
 
-        self.end_scope(); // TODO: End scope just before return statement so parameters are deallocated!
+        self.end_scope();
 
         Ok((ret_type, param_types))
     }

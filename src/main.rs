@@ -7,6 +7,7 @@ mod stream;
 mod lexing;
 mod parsing;
 mod checking;
+mod codegen;
 
 use std::{ env, fs, io, fmt };
 use std::path::{ Path, PathBuf };

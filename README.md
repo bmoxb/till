@@ -17,7 +17,7 @@
     * [x] For expressions
     * [x] For statements
   * [x] Ensure scoping rules are met
-  * [ ] Produce a final immediate representation of the input program
+  * [x] Produce a final immediate representation of the input program
 * [ ] Code generator
   * [ ] Produce machine code using the final IR
   * [ ] Write the machine code to an output file
