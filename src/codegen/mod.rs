@@ -6,8 +6,10 @@ trait Generator {
     const TARGET_NAME: &'static str;
 
     fn execute(mut self, instructions: Vec<checking::Instruction>) -> String where Self: Sized {
+        println!("Targeting: {}", Self::TARGET_NAME);
+
         for instruction in instructions {
-            log::trace!("Code generator targing {} handling instruction: {:?}", Self::TARGET_NAME, instruction);
+            log::trace!("Handling instruction: {:?}", instruction);
 
             self.handle_instruction(instruction);
         }
