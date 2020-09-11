@@ -18,6 +18,9 @@ pub struct Checker<T: Iterator<Item=parsing::Statement>> {
     /// Holds the primitive instructions that will make up the final immediate
     /// representation of the input program.
     final_ir: Vec<super::Instruction>,
+    /// When a scope ends, all the variable IDs it was previously using are stored
+    /// in this vector so that then may be reused in a new scope.
+    available_var_ids: Vec<super::Id>,
     /// Counter for creating unique IDs. Incremented each time a ID is required.
     id_counter: super::Id
 }
@@ -28,6 +31,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
             stmts,
             scopes: Vec::new(),
             final_ir: Vec::new(),
+            available_var_ids: Vec::new(),
             id_counter: 0
         }
     }
@@ -257,20 +261,21 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
     }
 
     /// Introduce a new, inner-most scope which is added to the end of the scope
-    /// stack. Will also insert a begin scope instruction into the final IR.
+    /// stack.
     fn begin_new_scope(&mut self) {
         self.scopes.push(super::Scope {
             variable_defs: Vec::new(),
             function_defs: Vec::new()
         });
-        self.final_ir.push(super::Instruction::BeginScope);
     }
 
     /// Remove the inner-most scope from the scopes stack. Will also insert an
     /// end scope instruction into the final IR.
     fn end_scope(&mut self) {
-        self.scopes.pop();
-        self.final_ir.push(super::Instruction::EndScope);
+        if let Some(old_scope) = self.scopes.pop() {
+            let newly_available_ids = old_scope.variable_defs.iter().map(|x| x.id);
+            self.available_var_ids.extend(newly_available_ids);
+        }
     }
 
     /// Get a mutable reference to the current inner-most scope. Will panic if
@@ -295,7 +300,10 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
     /// Introduce a new variable into the current inner most scope. Will also
     /// insert final IR instruction to allocate space for this new variable.
     fn introduce_variable_to_inner_scope(&mut self, ident: &str, var_type: super::Type) -> super::Id {
-        let id = self.new_id();
+        let id = {
+            if let Some(unused_id) = self.available_var_ids.pop() { unused_id }
+            else { self.new_id() }
+        };
         
         self.get_inner_scope().variable_defs.push(super::VariableDef {
             var_type, identifier: ident.to_string(), id

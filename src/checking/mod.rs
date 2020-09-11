@@ -113,11 +113,6 @@ pub enum Value {
 /// immediate representation of a till program.
 #[derive(Debug)]
 pub enum Instruction {
-    /// Begin a new scope. All variables allocated after this instruction will
-    /// be deallocated when either an end scope or return instruction is next
-    /// encountered.
-    BeginScope,
-    EndScope,
     /// Allocate space for the storage of a variable with a given ID.
     Allocate(Id),
     /// Push the specified value onto the stack.
