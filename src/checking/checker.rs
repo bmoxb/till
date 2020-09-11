@@ -158,9 +158,9 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                 let end_id = self.new_id();
                 self.final_ir.push(super::Instruction::Jump(end_id));
 
-                // Introduce the start label before the function body:
+                // Add the function instruction before the function body:
                 let start_id = self.new_id();
-                self.final_ir.push(super::Instruction::Label(start_id));
+                self.final_ir.push(super::Instruction::Function(start_id));
 
                 let (optional_body_return_type, param_types) = self.check_block(body, parameters)?;
 
@@ -301,15 +301,16 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
     /// insert final IR instruction to allocate space for this new variable.
     fn introduce_variable_to_inner_scope(&mut self, ident: &str, var_type: super::Type) -> super::Id {
         let id = {
-            if let Some(unused_id) = self.available_var_ids.pop() { unused_id }
+            if let Some(unused_id) = self.available_var_ids.pop() {
+                self.final_ir.push(super::Instruction::Allocate(unused_id));
+                unused_id
+            }
             else { self.new_id() }
         };
         
         self.get_inner_scope().variable_defs.push(super::VariableDef {
             var_type, identifier: ident.to_string(), id
         });
-
-        self.final_ir.push(super::Instruction::Allocate(id));
 
         id
     }
@@ -366,7 +367,10 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                     (def.identifier.clone(), def.return_type.clone(), def.id)
                 };
 
-                self.final_ir.push(super::Instruction::Call(id));
+                self.final_ir.push(
+                    if option_ret_type.is_some() { super::Instruction::CallExpectingValue(id) }
+                    else { super::Instruction::CallExpectingVoid(id) }
+                );
 
                 match option_ret_type {
                     Some(ret_type) => Ok(ret_type.clone()),

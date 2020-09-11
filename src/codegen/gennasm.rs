@@ -24,17 +24,17 @@ impl GenerateNasm {
     }
 }
 
-const INITIAL_TEXT: &'static str = "
+const INITIAL_TEXT: &'static str = "\
 section .text
 global _start
 _start:
 ";
 
-const INITIAL_DATA: &'static str = "\nsection .data\n";
+const INITIAL_DATA: &'static str = "section .data\n";
 
-const INITIAL_RODATA: &'static str = "\nsection .rodata\n";
+const INITIAL_RODATA: &'static str = "section .rodata\n";
 
-const ADD_INSTRUCTIONS: &'static str = "
+const ADD_INSTRUCTIONS: &'static str = "\
 fld qword [rsp] ; Load top of stack onto FPU stack
 fld qword [rsp + 8] ; Load second-to-top of stack onto FPU stack
 fadd ; Perform operation
@@ -42,7 +42,16 @@ add rsp, 8 ; Move stack pointer
 fst qword [rsp] ; Store result on stack
 ";
 
-const EXIT_INSTRUCTIONS: &'static str = "
+const FUNCTION_INSTRUCTION: &'static str = "pop rbx ; Store return address in register for later use\n";
+
+const CALL_INSTRUCTION: &'static str = "push rax ; Place the function return value on the stack\n";
+
+const RETURN_INSTRUCTIONS: &'static str = "\
+push rbx ; Place the return address on the stack again
+ret
+";
+
+const EXIT_INSTRUCTIONS: &'static str = "\
 mov rax, 60 ; Exit syscall (sys_exit)
 mov rdi, 0 ; Ok error code
 syscall ; Perform the syscall operation
@@ -53,15 +62,46 @@ impl Generator for GenerateNasm {
 
     fn handle_instruction(&mut self, instruction: checking::Instruction) {
         match instruction {
-            checking::Instruction::Push(checking::Value::Num(num_val)) => {
-                let label = format!("num{}", self.num_label_counter);
-                self.num_label_counter += 1;
+            checking::Instruction::Allocate(id) => { self.data_section += &store_under_label(&var_label(id), 0); }
 
-                self.rodata_section += &store_under_label(&label, num_val, "Store number literal");
-                self.text_section += &push_address(&label, "Push number literal stored in .rodata section");
+            checking::Instruction::Push(val) => {
+                match val {
+                    checking::Value::Num(num_val) => {
+                        let label = literal_label(self.num_label_counter);
+                        self.num_label_counter += 1;
+
+                        self.rodata_section += &store_under_label(&label, num_val);
+                        self.text_section += &push_address(&label, "Push number literal stored in .rodata section");
+                    }
+
+                    checking::Value::Variable(var_id) => {
+                        self.text_section += &push_address(&var_label(var_id), "Push variable stored in the .data section");
+                    }
+
+                    _ => unimplemented!()
+                }
             }
 
-            checking::Instruction::Label(id) => { self.text_section += &format!("label{}:\n", id); }
+            checking::Instruction::Store(id) => {
+                self.text_section += &pop_address(&var_label(id), "Store in .data section");
+            }
+
+            checking::Instruction::Label(id) => { self.text_section += &format!("{}:\n", label(id)); }
+
+            checking::Instruction::Function(id) => { self.text_section += &format!("{}:\n{}", func_label(id), FUNCTION_INSTRUCTION); }
+
+            checking::Instruction::CallExpectingVoid(id) => { self.text_section += &format!("call {}\n", func_label(id)); }
+
+            checking::Instruction::CallExpectingValue(id) => {
+                self.text_section += &format!("call {}\n{}", func_label(id), CALL_INSTRUCTION);
+            }
+
+            checking::Instruction::ReturnVoid => { self.text_section += RETURN_INSTRUCTIONS; }
+
+            checking::Instruction::ReturnValue => {
+                self.text_section += "pop rax ; Place function return value in register\n";
+                self.text_section += RETURN_INSTRUCTIONS;
+            }
 
             checking::Instruction::Jump(id) => { self.text_section += &format!("jmp label{}\n", id); }
 
@@ -77,6 +117,16 @@ impl Generator for GenerateNasm {
     }
 }
 
-fn store_under_label<T: fmt::Display>(label: &str, val: T, comment: &str) -> String { format!("{}: rq {} ; {}\n", label, val, comment) }
+fn label(id: usize) -> String { format!("label{}", id) }
 
-fn push_address<T: fmt::Display>(val: &T, comment: &str) -> String { format!("push [{}] ; {}\n", val, comment) }
+fn func_label(id: usize) -> String { format!("func{}", id) }
+
+fn var_label(id: usize) -> String { format!("var{}", id) }
+
+fn literal_label(counter: usize) -> String { format!("literal{}", counter) }
+
+fn store_under_label<T: fmt::Display>(label: &str, val: T) -> String { format!("{}: dq {}\n", label, val) }
+
+fn push_address(val: &str, comment: &str) -> String { format!("push qword [{}] ; {}\n", val, comment) }
+
+fn pop_address(val: &str, comment: &str) -> String { format!("pop qword [{}] ; {}\n", val, comment) }

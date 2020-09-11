@@ -122,9 +122,12 @@ pub enum Instruction {
     /// Identify a point in the series of instructions that can be jumped to (e.g.
     /// the beginning of a function or loop).
     Label(Id),
+    /// Identify the start of a function which can be later called upon.
+    Function(Id),
     /// Jump to function specified by the given ID, return here when return
-    /// instruction encountered.
-    Call(Id),
+    /// instruction encountered. The function called should not return a value.
+    CallExpectingVoid(Id),
+    CallExpectingValue(Id),
     /// Return from call, returning value on top of stack. Will also result in
     /// the deallocation of all variables allocated since the last begin scope
     /// instruction.
