@@ -119,6 +119,8 @@ pub enum Instruction {
     Push(Value),
     /// Pop a value off the stack and store it in the specified variable.
     Store(Id),
+    /// Store a function argument in a parameter variable.
+    Parameter { store_in: Id, param_number: usize },
     /// Identify a point in the series of instructions that can be jumped to (e.g.
     /// the beginning of a function or loop).
     Label(Id),

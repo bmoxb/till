@@ -42,13 +42,16 @@ add rsp, 8 ; Move stack pointer
 fst qword [rsp] ; Store result on stack
 ";
 
-const FUNCTION_INSTRUCTION: &'static str = "pop rbx ; Store return address in register for later use\n";
+const FUNCTION_INSTRUCTION: &'static str = "\
+push rbp ; Preserve the base pointer of the previous frame
+mov rbp, rsp ; Create a new frame beginning at the current stack top
+";
 
-const CALL_INSTRUCTION: &'static str = "push rax ; Place the function return value on the stack\n";
+const AFTER_CALL_INSTRUCTION: &'static str = "push rax ; Place the function return value on the stack\n";
 
 const RETURN_INSTRUCTIONS: &'static str = "\
-push rbx ; Place the return address on the stack again
-ret
+pop rbp ; Restore the base pointer of the previous frame
+ret 16 ; Shift stack pointer by 2 (remove old base pointer, return address) when returning
 ";
 
 const EXIT_INSTRUCTIONS: &'static str = "\
@@ -62,7 +65,7 @@ impl Generator for GenerateNasm {
 
     fn handle_instruction(&mut self, instruction: checking::Instruction) {
         match instruction {
-            checking::Instruction::Allocate(id) => { self.data_section += &store_under_label(&var_label(id), 0); }
+            checking::Instruction::Allocate(id) => { self.data_section += &store_num_under_label(&var_label(id), 0); }
 
             checking::Instruction::Push(val) => {
                 match val {
@@ -70,7 +73,7 @@ impl Generator for GenerateNasm {
                         let label = literal_label(self.num_label_counter);
                         self.num_label_counter += 1;
 
-                        self.rodata_section += &store_under_label(&label, num_val);
+                        self.rodata_section += &store_num_under_label(&label, num_val);
                         self.text_section += &push_address(&label, "Push number literal stored in .rodata section");
                     }
 
@@ -82,8 +85,14 @@ impl Generator for GenerateNasm {
                 }
             }
 
-            checking::Instruction::Store(id) => {
-                self.text_section += &pop_address(&var_label(id), "Store in .data section");
+            checking::Instruction::Store(id) => { self.text_section += &pop_address(&var_label(id), "Store in .data section"); }
+
+            checking::Instruction::Parameter { store_in, param_number } => {
+                self.text_section += &format!("mov rbx, [rbp + {}] ; {}\nmov [{}], rbx\n",
+                    16 + (param_number * 8),
+                    "Store function argument in parameter variable",
+                    &var_label(store_in)
+                );
             }
 
             checking::Instruction::Label(id) => { self.text_section += &format!("{}:\n", label(id)); }
@@ -93,7 +102,7 @@ impl Generator for GenerateNasm {
             checking::Instruction::CallExpectingVoid(id) => { self.text_section += &format!("call {}\n", func_label(id)); }
 
             checking::Instruction::CallExpectingValue(id) => {
-                self.text_section += &format!("call {}\n{}", func_label(id), CALL_INSTRUCTION);
+                self.text_section += &format!("call {}\n{}", func_label(id), AFTER_CALL_INSTRUCTION);
             }
 
             checking::Instruction::ReturnVoid => { self.text_section += RETURN_INSTRUCTIONS; }
@@ -125,7 +134,7 @@ fn var_label(id: usize) -> String { format!("var{}", id) }
 
 fn literal_label(counter: usize) -> String { format!("literal{}", counter) }
 
-fn store_under_label<T: fmt::Display>(label: &str, val: T) -> String { format!("{}: dq {}\n", label, val) }
+fn store_num_under_label<T: fmt::Display>(label: &str, val: T) -> String { format!("{}: dq {:.16}\n", label, val) }
 
 fn push_address(val: &str, comment: &str) -> String { format!("push qword [{}] ; {}\n", val, comment) }
 

@@ -227,7 +227,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         self.begin_new_scope();
 
         let mut param_types = Vec::new();
-        for param in params {
+        for (i, param) in params.iter().enumerate() {
             let converted_type = super::Type::from_parsing_type(&param.param_type)?;
 
             let var_id = self.introduce_variable_to_inner_scope(&param.identifier, converted_type.clone());
@@ -235,7 +235,10 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
             // Function arguments are assumed to be placed on the stack before
             // the function is called, so store those values in the parameter
             // variables:
-            self.final_ir.push(super::Instruction::Store(var_id));
+            self.final_ir.push(super::Instruction::Parameter {
+                store_in: var_id,
+                param_number: i
+            });
 
             param_types.push(converted_type);
         }
@@ -301,11 +304,12 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
     /// insert final IR instruction to allocate space for this new variable.
     fn introduce_variable_to_inner_scope(&mut self, ident: &str, var_type: super::Type) -> super::Id {
         let id = {
-            if let Some(unused_id) = self.available_var_ids.pop() {
-                self.final_ir.push(super::Instruction::Allocate(unused_id));
-                unused_id
+            if let Some(unused_id) = self.available_var_ids.pop() { unused_id }
+            else {
+                let new_id = self.new_id();
+                self.final_ir.push(super::Instruction::Allocate(new_id));
+                new_id
             }
-            else { self.new_id() }
         };
         
         self.get_inner_scope().variable_defs.push(super::VariableDef {
@@ -336,6 +340,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
     fn new_id(&mut self) -> super::Id {
         let id = self.id_counter;
         self.id_counter += 1;
+
         id
     }
 
