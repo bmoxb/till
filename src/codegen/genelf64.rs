@@ -32,6 +32,11 @@ const RETURN_INSTRUCTIONS: &'static [Instruction] = &[
     Instruction::Ret(16) // Shift stack pointer by 2 (remove old base pointer, return address) when returning.
 ];
 
+const POP_AND_CMP_WITH_ZERO_INSTRUCTIONS: &'static [Instruction] = &[
+    Instruction::Pop(Oprand::Register(Reg::Rax)),
+    Instruction::Cmp { dest: Oprand::Register(Reg::Rax), src: Oprand::Value(Val::Int(0)) }
+];
+
 impl Generator for GenerateElf64 {
     const TARGET_NAME: &'static str = "Linux elf64";
 
@@ -126,6 +131,44 @@ impl Generator for GenerateElf64 {
 
             checking::Instruction::Jump(id) => { self.text_section.push(Instruction::Jmp(label(id))); }
 
+            checking::Instruction::JumpIfTrue(id) => {
+                self.text_section.extend_from_slice(POP_AND_CMP_WITH_ZERO_INSTRUCTIONS);
+                // Jump if top of stack not equal to 0:
+                self.text_section.push(Instruction::Jne(label(id)));
+            }
+
+            checking::Instruction::JumpIfFalse(id) => {
+                self.text_section.extend_from_slice(POP_AND_CMP_WITH_ZERO_INSTRUCTIONS);
+                // Jump if top of stack equals 0:
+                self.text_section.push(Instruction::Je(label(id)));
+            }
+
+            checking::Instruction::Equals => {
+                self.text_section.extend(vec![
+                    // Take first value in comparison off the stack:
+                    Instruction::Pop(Oprand::Register(Reg::Rax)),
+                    // Subtract that value by the second top value on stack:
+                    Instruction::Sub {
+                        dest: Oprand::Register(Reg::Rax),
+                        src: Oprand::Address(Box::new(Oprand::Register(Reg::StackPointer)))
+                    },
+                    // Push the 16-bit flags register onto the stack:
+                    Instruction::PushFlags,
+                    // Ensure full rax register is clear in prepare of subsequent use:
+                    Instruction::Mov { dest: Oprand::Register(Reg::Rax), src: Oprand::Value(Val::Int(0)) },
+                    // Pop the flags register into the lower two bytes of rax register:
+                    Instruction::Pop(Oprand::Register(Reg::Ax)),
+                    // Extract the value of the zero flag:
+                    Instruction::Shr { dest: Oprand::Register(Reg::Ax), shift_by: 6 },
+                    Instruction::And { dest: Oprand::Register(Reg::Ax), src: Oprand::Value(Val::Int(1)) },
+                    // Place the value of the zero flag onto the stack:
+                    Instruction::Mov {
+                        dest: Oprand::Address(Box::new(Oprand::Register(Reg::StackPointer))),
+                        src: Oprand::Register(Reg::Rax)
+                    }
+                ]);
+            }
+
             checking::Instruction::Add => {
                 self.text_section.extend(vec![
                     // Load top of stack onto FPU stack:
@@ -171,6 +214,7 @@ enum Instruction {
     Syscall,
     Mov { dest: Oprand, src: Oprand },
     Add { dest: Oprand, src: Oprand },
+    Sub { dest: Oprand, src: Oprand },
     Push(Oprand),
     Pop(Oprand),
     FpuPush(Oprand),
@@ -179,7 +223,13 @@ enum Instruction {
     Declare(Val),
     Ret(usize),
     Call(String),
-    Jmp(String)
+    Jmp(String),
+    Shr { dest: Oprand, shift_by: usize },
+    And { dest: Oprand, src: Oprand },
+    PushFlags,
+    Cmp { dest: Oprand, src: Oprand },
+    Je(String),
+    Jne(String)
 }
 
 impl AssemblyDisplay for Instruction {
@@ -191,15 +241,22 @@ impl AssemblyDisplay for Instruction {
             Instruction::Syscall => format!("syscall\n"),
             Instruction::Mov { dest, src } => format!("mov {}, {}\n", dest.intel_syntax(), src.intel_syntax()),
             Instruction::Add { dest, src } => format!("add {}, {}\n", dest.intel_syntax(), src.intel_syntax()),
+            Instruction::Sub { dest, src } => format!("sub {}, {}\n", dest.intel_syntax(), src.intel_syntax()),
             Instruction::Push(x) => format!("push qword {}\n", x.intel_syntax()),
             Instruction::Pop(x) => format!("pop qword {}\n", x.intel_syntax()),
             Instruction::FpuPush(x) => format!("fld qword {}\n", x.intel_syntax()),
-            Instruction::FpuAdd => format!("fadd\n"),
+            Instruction::FpuAdd => "fadd\n".to_string(),
             Instruction::FpuPop(x) => format!("fst qword {}\n", x.intel_syntax()),
             Instruction::Declare(x) => format!("dq {}\n", x.intel_syntax()),
             Instruction::Ret(x) => format!("ret {}\n", x),
             Instruction::Call(x) => format!("call {}\n", x),
-            Instruction::Jmp(x) => format!("jmp {}\n", x)
+            Instruction::Jmp(x) => format!("jmp {}\n", x),
+            Instruction::Shr { dest, shift_by } => format!("shr {}, {}\n", dest.intel_syntax(), shift_by),
+            Instruction::And { dest, src } => format!("and {}, {}\n", dest.intel_syntax(), src.intel_syntax()),
+            Instruction::PushFlags => "pushf\n".to_string(),
+            Instruction::Cmp { dest, src } => format!("cmp {}, {}\n", dest.intel_syntax(), src.intel_syntax()),
+            Instruction::Je(x) => format!("je {}\n", x),
+            Instruction::Jne(x) => format!("jne {}\n", x)
         }
     }
 }
@@ -238,12 +295,13 @@ impl AssemblyDisplay for Val {
 }
 
 #[derive(Clone)]
-enum Reg { Rax, StackPointer, BasePointer, DestIndex }
+enum Reg { Rax, Ax, StackPointer, BasePointer, DestIndex }
 
 impl AssemblyDisplay for Reg {
     fn intel_syntax(self) -> String {
         match self {
             Reg::Rax => "rax",
+            Reg::Ax => "ax",
             Reg::StackPointer => "rsp",
             Reg::BasePointer => "rbp",
             Reg::DestIndex => "rdi"

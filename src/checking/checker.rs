@@ -70,13 +70,17 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
             }
 
             parsing::Statement::While { condition, block } => {
-                let id = self.new_id();
-                self.final_ir.push(super::Instruction::Label(id));
+                let block_end_id = self.new_id();
+                self.final_ir.push(super::Instruction::Jump(block_end_id));
+
+                let start_id = self.new_id();
+                self.final_ir.push(super::Instruction::Label(start_id));
 
                 let (block_ret_type, _) = self.check_block(block, &Vec::new())?;
+                self.final_ir.push(super::Instruction::Label(block_end_id));
 
                 self.expect_expr_type(condition, super::Type::Bool)?;
-                self.final_ir.push(super::Instruction::JumpIfTrue(id));
+                self.final_ir.push(super::Instruction::JumpIfTrue(start_id));
 
                 Ok(block_ret_type)
             }
