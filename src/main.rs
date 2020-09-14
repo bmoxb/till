@@ -47,7 +47,7 @@ fn compile(relative_in: &str, relative_out: &str) {
             let tokens = lexing::lexer::input(strm).filter_map(|x| display_any_failures(x, "lexical"));
             let syntax_tree = parsing::parser::input(tokens).filter_map(|x| display_any_failures(x, "syntax"));
             let final_ir = display_any_failures(checking::checker::input(syntax_tree), "semantic").unwrap();
-            let asm = codegen::gennasm::input(final_ir);
+            let asm = codegen::genelf64::input(final_ir);
 
             match fs::File::create(&out_path) {
                 Ok(mut out_file) => {

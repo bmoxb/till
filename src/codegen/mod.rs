@@ -1,4 +1,4 @@
-pub mod gennasm;
+pub mod genelf64;
 
 use crate::checking;
 
