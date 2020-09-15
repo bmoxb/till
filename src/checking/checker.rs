@@ -448,8 +448,8 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
             parsing::Expression::UnaryMinus(expr) => {
                 log::trace!("Verify type of expression to which unary minus is being applied - expecting Num");
 
-                self.expect_expr_type(expr, super::Type::Num)?;
                 self.final_ir.push(super::Instruction::Push(super::Value::Num(0.0)));
+                self.expect_expr_type(expr, super::Type::Num)?;
                 self.final_ir.push(super::Instruction::Subtract);
 
                 Ok(super::Type::Num)

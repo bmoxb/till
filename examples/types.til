@@ -1,3 +1,3 @@
-Num x = (12.36 - 0.16) / 2
+Num x = (12.36 +  ~0.16) / 2
 Char y = 'x'
 Bool z = true
