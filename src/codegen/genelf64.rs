@@ -7,7 +7,7 @@ pub fn input(instructions: Vec<checking::Instruction>) -> String {
 
 struct GenerateElf64 {
     text_section: Vec<Instruction>,
-    data_section: Vec<Instruction>,
+    bss_section: Vec<Instruction>,
     rodata_section: Vec<Instruction>,
     num_label_counter: usize
 }
@@ -20,7 +20,7 @@ impl GenerateElf64 {
                 Instruction::Global("_start".to_string()),
                 Instruction::Label("_start".to_string())
             ],
-            data_section: vec![Instruction::Section("data".to_string())],
+            bss_section: vec![Instruction::Section("bss".to_string())],
             rodata_section: vec![Instruction::Section("rodata".to_string())],
             num_label_counter: 0
         }
@@ -43,9 +43,9 @@ impl Generator for GenerateElf64 {
     fn handle_instruction(&mut self, instruction: checking::Instruction) {
         match instruction {
             checking::Instruction::Allocate(id) => {
-                self.data_section.extend(vec![
+                self.bss_section.extend(vec![
                     Instruction::Label(var_label(id)),
-                    Instruction::Declare(Val::Float(0.0))
+                    Instruction::Reserve
                 ]);
             }
 
@@ -193,7 +193,7 @@ impl Generator for GenerateElf64 {
             Instruction::Mov { dest: Oprand::Register(Reg::DestIndex), src: Oprand::Value(Val::Int(0)) },
             Instruction::Syscall
         ]);
-        self.text_section.extend(self.data_section.into_iter());
+        self.text_section.extend(self.bss_section.into_iter());
         self.text_section.extend(self.rodata_section.into_iter());
 
         self.text_section.into_iter().map(|x| x.intel_syntax()).collect::<Vec<String>>().join("")
@@ -221,6 +221,7 @@ enum Instruction {
     FpuAdd,
     FpuPop(Oprand),
     Declare(Val),
+    Reserve,
     Ret(usize),
     Call(String),
     Jmp(String),
@@ -248,6 +249,7 @@ impl AssemblyDisplay for Instruction {
             Instruction::FpuAdd => "fadd\n".to_string(),
             Instruction::FpuPop(x) => format!("fst qword {}\n", x.intel_syntax()),
             Instruction::Declare(x) => format!("dq {}\n", x.intel_syntax()),
+            Instruction::Reserve => "resq 1\n".to_string(),
             Instruction::Ret(x) => format!("ret {}\n", x),
             Instruction::Call(x) => format!("call {}\n", x),
             Instruction::Jmp(x) => format!("jmp {}\n", x),
