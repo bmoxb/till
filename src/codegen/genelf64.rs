@@ -157,13 +157,11 @@ impl Generator for GenerateElf64 {
                     },
                     // Push the 16-bit flags register onto the stack:
                     Instruction::PushFlags,
-                    // Ensure full rax register is clear in prepare of subsequent use:
-                    Instruction::Mov { dest: Oprand::Register(Reg::Rax), src: Oprand::Value(Val::Int(0)) },
                     // Pop the flags register into the lower two bytes of rax register:
                     Instruction::Pop(Oprand::Register(Reg::Ax)),
                     // Extract the value of the zero flag:
                     Instruction::Shr { dest: Oprand::Register(Reg::Ax), shift_by: 6 },
-                    Instruction::And { dest: Oprand::Register(Reg::Ax), src: Oprand::Value(Val::Int(1)) },
+                    Instruction::And { dest: Oprand::Register(Reg::Rax), src: Oprand::Value(Val::Int(1)) },
                     // Place the value of the zero flag onto the stack:
                     Instruction::Mov {
                         dest: Oprand::Address(Box::new(Oprand::Register(Reg::StackPointer))),
