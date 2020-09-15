@@ -50,7 +50,7 @@ impl Generator for GenerateElf64 {
             }
 
             checking::Instruction::Push(val) => {
-                let label = match val {
+                let oprand = match val {
                     checking::Value::Num(num_val) => {
                         let label = literal_label(self.num_label_counter);
                         self.num_label_counter += 1;
@@ -59,18 +59,21 @@ impl Generator for GenerateElf64 {
                             Instruction::Label(label.clone()),
                             Instruction::Declare(Val::Float(num_val))
                         ]);
-
-                        label
+                        
+                        Oprand::Address(Box::new(Oprand::Label(label)))
                     }
 
-                    checking::Value::Variable(var_id) => var_label(var_id),
+                    checking::Value::Variable(var_id) =>
+                        Oprand::Address(Box::new(Oprand::Label(var_label(var_id)))),
 
-                    _ => unimplemented!()
+                    checking::Value::Char(chr_val) =>
+                        Oprand::Value(Val::Int(chr_val as isize)),
+
+                    checking::Value::Bool(bool_val) =>
+                        Oprand::Value(Val::Int(if bool_val { 1 } else { 0 }))
                 };
 
-                self.text_section.push(Instruction::Push(
-                    Oprand::Address(Box::new(Oprand::Label(label)))
-                ));
+                self.text_section.push(Instruction::Push(oprand));
             }
 
             checking::Instruction::Store(id) => {
