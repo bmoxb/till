@@ -175,6 +175,27 @@ impl Generator for GenerateElf64 {
             checking::Instruction::Multiply => self.add_arithmetic_instructions(Instruction::FpuMultiply),
             checking::Instruction::Divide => self.add_arithmetic_instructions(Instruction::FpuDivide),
 
+            checking::Instruction::GreaterThan => {
+                self.add_comparison_instructions(vec![
+                    // Extract the carry flag bit (indicates greater than when set in this instance):
+                    Instruction::Shr { dest: Oprand::Register(Reg::Ax), shift_by: 8 }
+                ]);
+            }
+
+            checking::Instruction::LessThan => {
+                self.add_comparison_instructions(vec![
+                    // Create second copy of FPU status word:
+                    Instruction::Mov { dest: Oprand::Register(Reg::Bx), src: Oprand::Register(Reg::Ax) },
+                    // Have carry flag as least significant bit of ax:
+                    Instruction::Shr { dest: Oprand::Register(Reg::Ax), shift_by: 8 },
+                    // Have zero flag as least significant bit of bx:
+                    Instruction::Shr { dest: Oprand::Register(Reg::Bx), shift_by: 14 },
+                    // Both carry flag and zero flag being 0 indicates less than:
+                    Instruction::Or { dest: Oprand::Register(Reg::Ax), src: Oprand::Register(Reg::Bx) },
+                    Instruction::BitwiseNot(Oprand::Register(Reg::Ax))
+                ]);
+            }
+
             _ => {}
         }
     }
@@ -193,17 +214,51 @@ impl Generator for GenerateElf64 {
 }
 
 impl GenerateElf64 {
-    fn add_arithmetic_instructions(&mut self, operation: Instruction) {
+    fn two_stack_items_to_fpu_stack(&mut self) {
         self.text_section.extend(vec![
+            Instruction::FpuReset,
             // Load second-to-top of stack onto FPU stack:
             Instruction::FpuPush(Oprand::AddressDisplaced(Box::new(Oprand::Register(Reg::StackPointer)), 8)),
             // Load top of stack onto FPU stack:
             Instruction::FpuPush(Oprand::Address(Box::new(Oprand::Register(Reg::StackPointer)))),
-            operation,
             // Move stack pointer:
             Instruction::Add { dest: Oprand::Register(Reg::StackPointer), src: Oprand::Value(Val::Int(8)) },
-            // Store result on stack:
-            Instruction::FpuPop(Oprand::Address(Box::new(Oprand::Register(Reg::StackPointer))))
+        ]);
+    }
+
+    fn add_arithmetic_instructions(&mut self, operation: Instruction) {
+        self.two_stack_items_to_fpu_stack();
+
+        self.text_section.extend(vec![
+            // Perform the arithmetic operation:
+            operation,
+            // Move result from FPU stack to regular stack:
+            Instruction::FpuPop(
+                Oprand::Address(Box::new(Oprand::Register(Reg::StackPointer)))
+            ),
+        ]);
+    }
+    
+    fn add_comparison_instructions(&mut self, operations: Vec<Instruction>) {
+        self.two_stack_items_to_fpu_stack();
+       
+        self.text_section.extend(vec![
+            // Compare items on FPU stack:
+            Instruction::FpuCompare,
+            // Store the FPU status register in ax:
+            Instruction::FpuStatusReg(Oprand::Register(Reg::Ax)),
+        ]);
+        
+        self.text_section.extend(operations);
+        
+        self.text_section.extend(vec![
+            // Ensure all bits except the least significant one are clear:
+            Instruction::And { dest: Oprand::Register(Reg::Rax), src: Oprand::Value(Val::Int(1)) },
+            //  Store result:
+            Instruction::Mov {
+                dest: Oprand::Address(Box::new(Oprand::Register(Reg::StackPointer))),
+                src: Oprand::Register(Reg::Rax)
+            }
         ]);
     }
 }
@@ -219,6 +274,7 @@ enum Instruction {
     Section(String),
     Global(String),
     Label(String),
+    Declare(Val),
     Syscall,
     Mov { dest: Oprand, src: Oprand },
     Add { dest: Oprand, src: Oprand },
@@ -227,7 +283,9 @@ enum Instruction {
     Pop(Oprand),
     FpuPush(Oprand),
     FpuPop(Oprand),
-    Declare(Val),
+    FpuStatusReg(Oprand),
+    FpuReset,
+    FpuCompare,
     FpuAdd,
     FpuSubtract,
     FpuMultiply,
@@ -238,6 +296,8 @@ enum Instruction {
     Jmp(String),
     Shr { dest: Oprand, shift_by: usize },
     And { dest: Oprand, src: Oprand },
+    Or { dest: Oprand, src: Oprand },
+    BitwiseNot(Oprand),
     PushFlags,
     Cmp { dest: Oprand, src: Oprand },
     Je(String),
@@ -250,6 +310,7 @@ impl AssemblyDisplay for Instruction {
             Instruction::Section(x) => format!("section .{}\n", x),
             Instruction::Global(x) => format!("global {}\n", x),
             Instruction::Label(x) => format!("{}:\n", x),
+            Instruction::Declare(x) => format!("dq {}\n", x.intel_syntax()),
             Instruction::Syscall => format!("syscall\n"),
             Instruction::Mov { dest, src } => format!("mov {}, {}\n", dest.intel_syntax(), src.intel_syntax()),
             Instruction::Add { dest, src } => format!("add {}, {}\n", dest.intel_syntax(), src.intel_syntax()),
@@ -258,17 +319,21 @@ impl AssemblyDisplay for Instruction {
             Instruction::Pop(x) => format!("pop qword {}\n", x.intel_syntax()),
             Instruction::FpuPush(x) => format!("fld qword {}\n", x.intel_syntax()),
             Instruction::FpuPop(x) => format!("fst qword {}\n", x.intel_syntax()),
+            Instruction::FpuStatusReg(x) => format!("fstsw {}\n", x.intel_syntax()),
+            Instruction::FpuReset => "finit\n".to_string(),
+            Instruction::FpuCompare => "fcom\n".to_string(),
             Instruction::FpuAdd => "fadd\n".to_string(),
             Instruction::FpuSubtract => "fsub\n".to_string(),
             Instruction::FpuMultiply => "fmul\n".to_string(),
             Instruction::FpuDivide => "fdiv\n".to_string(),
-            Instruction::Declare(x) => format!("dq {}\n", x.intel_syntax()),
             Instruction::Reserve => "resq 1\n".to_string(),
             Instruction::Ret(x) => format!("ret {}\n", x),
             Instruction::Call(x) => format!("call {}\n", x),
             Instruction::Jmp(x) => format!("jmp {}\n", x),
             Instruction::Shr { dest, shift_by } => format!("shr {}, {}\n", dest.intel_syntax(), shift_by),
             Instruction::And { dest, src } => format!("and {}, {}\n", dest.intel_syntax(), src.intel_syntax()),
+            Instruction::Or { dest, src } => format!("or {}, {}\n", dest.intel_syntax(), src.intel_syntax()),
+            Instruction::BitwiseNot(x) => format!("not {}\n", x.intel_syntax()),
             Instruction::PushFlags => "pushf\n".to_string(),
             Instruction::Cmp { dest, src } => format!("cmp {}, {}\n", dest.intel_syntax(), src.intel_syntax()),
             Instruction::Je(x) => format!("je {}\n", x),
@@ -311,13 +376,14 @@ impl AssemblyDisplay for Val {
 }
 
 #[derive(Clone)]
-enum Reg { Rax, Ax, StackPointer, BasePointer, DestIndex }
+enum Reg { Rax, Ax, Bx, StackPointer, BasePointer, DestIndex }
 
 impl AssemblyDisplay for Reg {
     fn intel_syntax(self) -> String {
         match self {
             Reg::Rax => "rax",
             Reg::Ax => "ax",
+            Reg::Bx => "bx",
             Reg::StackPointer => "rsp",
             Reg::BasePointer => "rbp",
             Reg::DestIndex => "rdi"
