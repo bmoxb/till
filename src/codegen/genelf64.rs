@@ -59,7 +59,7 @@ impl Generator for GenerateElf64 {
                             Instruction::Label(label.clone()),
                             Instruction::Declare(Val::Float(num_val))
                         ]);
-                        
+
                         Oprand::Address(Box::new(Oprand::Label(label)))
                     }
 
@@ -172,19 +172,10 @@ impl Generator for GenerateElf64 {
                 ]);
             }
 
-            checking::Instruction::Add => {
-                self.text_section.extend(vec![
-                    // Load top of stack onto FPU stack:
-                    Instruction::FpuPush(Oprand::Address(Box::new(Oprand::Register(Reg::StackPointer)))),
-                    // Load second-to-top of stack onto FPU stack:
-                    Instruction::FpuPush(Oprand::AddressDisplaced(Box::new(Oprand::Register(Reg::StackPointer)), 8)),
-                    Instruction::FpuAdd,
-                    // Move stack pointer:
-                    Instruction::Add { dest: Oprand::Register(Reg::StackPointer), src: Oprand::Value(Val::Int(8)) },
-                    // Store result on stack:
-                    Instruction::FpuPop(Oprand::Address(Box::new(Oprand::Register(Reg::StackPointer))))
-                ]);
-            }
+            checking::Instruction::Add => self.add_arithmetic_instructions(Instruction::FpuAdd),
+            checking::Instruction::Subtract => self.add_arithmetic_instructions(Instruction::FpuSubtract),
+            checking::Instruction::Multiply => self.add_arithmetic_instructions(Instruction::FpuMultiply),
+            checking::Instruction::Divide => self.add_arithmetic_instructions(Instruction::FpuDivide),
 
             _ => {}
         }
@@ -200,6 +191,22 @@ impl Generator for GenerateElf64 {
         self.text_section.extend(self.rodata_section.into_iter());
 
         self.text_section.into_iter().map(|x| x.intel_syntax()).collect::<Vec<String>>().join("")
+    }
+}
+
+impl GenerateElf64 {
+    fn add_arithmetic_instructions(&mut self, operation: Instruction) {
+        self.text_section.extend(vec![
+            // Load second-to-top of stack onto FPU stack:
+            Instruction::FpuPush(Oprand::AddressDisplaced(Box::new(Oprand::Register(Reg::StackPointer)), 8)),
+            // Load top of stack onto FPU stack:
+            Instruction::FpuPush(Oprand::Address(Box::new(Oprand::Register(Reg::StackPointer)))),
+            operation,
+            // Move stack pointer:
+            Instruction::Add { dest: Oprand::Register(Reg::StackPointer), src: Oprand::Value(Val::Int(8)) },
+            // Store result on stack:
+            Instruction::FpuPop(Oprand::Address(Box::new(Oprand::Register(Reg::StackPointer))))
+        ]);
     }
 }
 
@@ -221,9 +228,12 @@ enum Instruction {
     Push(Oprand),
     Pop(Oprand),
     FpuPush(Oprand),
-    FpuAdd,
     FpuPop(Oprand),
     Declare(Val),
+    FpuAdd,
+    FpuSubtract,
+    FpuMultiply,
+    FpuDivide,
     Reserve,
     Ret(usize),
     Call(String),
@@ -249,8 +259,11 @@ impl AssemblyDisplay for Instruction {
             Instruction::Push(x) => format!("push qword {}\n", x.intel_syntax()),
             Instruction::Pop(x) => format!("pop qword {}\n", x.intel_syntax()),
             Instruction::FpuPush(x) => format!("fld qword {}\n", x.intel_syntax()),
-            Instruction::FpuAdd => "fadd\n".to_string(),
             Instruction::FpuPop(x) => format!("fst qword {}\n", x.intel_syntax()),
+            Instruction::FpuAdd => "fadd\n".to_string(),
+            Instruction::FpuSubtract => "fsub\n".to_string(),
+            Instruction::FpuMultiply => "fmul\n".to_string(),
+            Instruction::FpuDivide => "fdiv\n".to_string(),
             Instruction::Declare(x) => format!("dq {}\n", x.intel_syntax()),
             Instruction::Reserve => "resq 1\n".to_string(),
             Instruction::Ret(x) => format!("ret {}\n", x),
