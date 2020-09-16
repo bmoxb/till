@@ -10,9 +10,11 @@ mod checking;
 mod codegen;
 
 use stream::Stream;
-use std::io::prelude::*;
-use std::{ env, fs, io, fmt };
-use std::path::{ Path, PathBuf };
+use std::{
+    io::prelude::*,
+    env, fs, io, fmt,
+    path::{ Path, PathBuf }
+};
 
 fn main() {
     println!("-- Till Compiler {} --\n", env!("CARGO_PKG_VERSION"));

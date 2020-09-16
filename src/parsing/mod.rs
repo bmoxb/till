@@ -4,8 +4,7 @@
 
 pub mod parser;
 
-use crate::lexing::lexer;
-use crate::stream;
+use crate::{ stream, lexing::lexer };
 use std::fmt;
 
 /// Represents the two types of syntax errors: the encountering of an unexpected

@@ -1,8 +1,7 @@
 //! Handle the parsing of a series of tokens into a collection of `Statement`
 //! instances.
 
-use crate::lexing::lexer;
-use crate::stream;
+use crate::{ stream, lexing::lexer };
 use std::iter;
 
 /// Returns an iterator that yields abstract syntax representations for each
