@@ -241,7 +241,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
             // variables:
             self.final_ir.push(super::Instruction::Parameter {
                 store_in: var_id,
-                param_number: i
+                param_number: (params.len() - 1) - i // Added in reverse.
             });
 
             param_types.push(converted_type);

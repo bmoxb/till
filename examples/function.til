@@ -1,7 +1,7 @@
-add(Num x, Num y) -> Num
-	return x + y
+sub(Num x, Num y) -> Num
+	return x - y
 
-increment(Num x) -> Num
-	return add(x, 1)
+decrement(Num x) -> Num
+	return sub(x, 1)
 
-Num z = increment(6.38)
+Num z = decrement(6.38)
