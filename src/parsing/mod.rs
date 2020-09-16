@@ -15,7 +15,7 @@ use std::fmt;
 pub enum Failure {
     UnexpectedToken(lexer::Token, &'static str),
     UnexpectedStreamEnd(&'static str),
-    UnexpectedIndent { expected_indent: usize, encountered_indent: usize }
+    UnexpectedIndent { expected_indent: usize, encountered_indent: usize, pos: stream::Position }
 }
 
 impl fmt::Display for Failure {
@@ -23,8 +23,8 @@ impl fmt::Display for Failure {
         match self {
             Failure::UnexpectedToken(tok, expected) => write!(f, "Expected {} yet encountered unexpected {}", expected, tok),
             Failure::UnexpectedStreamEnd(expected) => write!(f, "Encountered the end of the token stream yet expected {}", expected),
-            Failure::UnexpectedIndent { expected_indent, encountered_indent } =>
-                write!(f, "Encountered an unexpected change in indentation from the expected level of {} to an indentation level of {} tabs", expected_indent, encountered_indent)
+            Failure::UnexpectedIndent { expected_indent, encountered_indent, pos } =>
+                write!(f, "Encountered an unexpected change in indentation from the expected level of {} to an indentation level of {} tabs at {}", expected_indent, encountered_indent, pos)
         }
     }
 }

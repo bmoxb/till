@@ -207,7 +207,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
         let (identifier, _) = self.consume_identifier("variable identifier")?;
 
         // Variable declaration can optionally include a value for said variable:
-        let value = if self.consume_token_if_type(&lexer::TokenType::Equals, "varriable declaration").unwrap_or(None).is_some() {
+        let value = if self.consume_token_if_type(&lexer::TokenType::Equals, "").unwrap_or(None).is_some() {
             Some(self.expression()?)
         }
         else { None };
@@ -254,7 +254,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     fn block(&mut self, indent_before_block: usize) -> super::Result<super::Block> {
         let block_indent = indent_before_block + 1;
         
-        self.consume_token_of_expected_type(&lexer::TokenType::Newline(block_indent), "increase indent for start of block")?; // TODO: unexpected indent error?
+        self.consume_token_of_expected_type(&lexer::TokenType::Newline(block_indent), "increase indent for start of block")?;
         log::trace!("Start of block with indent level: {}", block_indent);
 
         let stmts = self.block_stmts(block_indent)?;
@@ -274,8 +274,8 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
             let stmt = self.statement(block_indent, "statement contained in block")?;
             stmts.push(stmt);
 
-            match self.peek_token("newline and indentation between statements in a block") {
-                Ok(lexer::Token { tok_type: lexer::TokenType::Newline(indent), lexeme: _ }) => {
+            match self.peek_token("") {
+                Ok(lexer::Token { tok_type: lexer::TokenType::Newline(indent), lexeme }) => {
                     if *indent == block_indent {
                         log::trace!("Next statement in block at same indentation level of {}", indent);
                         let _ = self.consume_token(""); // Only consume token if block continues.
@@ -289,7 +289,8 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
                         log::info!("Indent has unexpectedly increased to {} so returning Failure", indent);
                         return Err(super::Failure::UnexpectedIndent {
                             expected_indent: block_indent,
-                            encountered_indent: *indent
+                            encountered_indent: *indent,
+                            pos: lexeme.pos.clone()
                         });
                     }
                 }
@@ -316,7 +317,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
         let mut expr = sub_expr_func(self);
         
         for (seperating_tok_type, make_expr_func) in seperators {
-            if self.consume_token_if_type(seperating_tok_type, "expression").unwrap_or(None).is_some() {
+            if self.consume_token_if_type(seperating_tok_type, "").unwrap_or(None).is_some() {
                 let left = Box::new(expr?);
                 let right = Box::new(sub_expr_func(self)?);
                 

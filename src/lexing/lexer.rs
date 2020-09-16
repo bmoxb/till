@@ -8,7 +8,7 @@ pub type Token = super::GenericToken<TokenType>;
 impl fmt::Display for Token {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let name = match self.tok_type {
-            TokenType::Newline(x) if x > 0 => "indentation level",
+            TokenType::Newline(x) if x > 0 => "indentation",
             TokenType::Newline(0) => "newline",
             TokenType::Identifier(_) => "identifier",
             TokenType::TypeIdentifier(_) => "type identifier",
