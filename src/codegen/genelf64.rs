@@ -161,7 +161,7 @@ impl Generator for GenerateElf64 {
                     Instruction::Pop(Oprand::Register(Reg::Ax)),
                     // Extract the value of the zero flag:
                     Instruction::Shr { dest: Oprand::Register(Reg::Ax), shift_by: 6 },
-                    Instruction::And { dest: Oprand::Register(Reg::Rax), src: Oprand::Value(Val::Int(1)) },
+                    Instruction::BitwiseAnd { dest: Oprand::Register(Reg::Rax), src: Oprand::Value(Val::Int(1)) },
                     // Place the value of the zero flag onto the stack:
                     Instruction::Mov {
                         dest: Oprand::Address(Box::new(Oprand::Register(Reg::StackPointer))),
@@ -191,12 +191,22 @@ impl Generator for GenerateElf64 {
                     // Have zero flag as least significant bit of bx:
                     Instruction::Shr { dest: Oprand::Register(Reg::Bx), shift_by: 14 },
                     // Both carry flag and zero flag being 0 indicates less than:
-                    Instruction::Or { dest: Oprand::Register(Reg::Ax), src: Oprand::Register(Reg::Bx) },
+                    Instruction::BitwiseOr { dest: Oprand::Register(Reg::Ax), src: Oprand::Register(Reg::Bx) },
                     Instruction::BitwiseNot(Oprand::Register(Reg::Ax))
                 ]);
             }
 
-            _ => {}
+            checking::Instruction::Not => {
+                self.text_section.extend(vec![
+                    // Perform bitwise not on value on top of stack:
+                    Instruction::BitwiseNot(Oprand::Address(Box::new(Oprand::Register(Reg::StackPointer)))),
+                    // Discard all bits except the least significant:
+                    Instruction::BitwiseAnd {
+                        dest: Oprand::Address(Box::new(Oprand::Register(Reg::StackPointer))),
+                        src: Oprand::Value(Val::Int(1))
+                    }
+                ]);
+            }
         }
     }
 
@@ -253,7 +263,7 @@ impl GenerateElf64 {
         
         self.text_section.extend(vec![
             // Ensure all bits except the least significant one are clear:
-            Instruction::And { dest: Oprand::Register(Reg::Rax), src: Oprand::Value(Val::Int(1)) },
+            Instruction::BitwiseAnd { dest: Oprand::Register(Reg::Rax), src: Oprand::Value(Val::Int(1)) },
             //  Store result:
             Instruction::Mov {
                 dest: Oprand::Address(Box::new(Oprand::Register(Reg::StackPointer))),
@@ -295,8 +305,8 @@ enum Instruction {
     Call(String),
     Jmp(String),
     Shr { dest: Oprand, shift_by: usize },
-    And { dest: Oprand, src: Oprand },
-    Or { dest: Oprand, src: Oprand },
+    BitwiseAnd { dest: Oprand, src: Oprand },
+    BitwiseOr { dest: Oprand, src: Oprand },
     BitwiseNot(Oprand),
     PushFlags,
     Cmp { dest: Oprand, src: Oprand },
@@ -331,9 +341,9 @@ impl AssemblyDisplay for Instruction {
             Instruction::Call(x) => format!("call {}\n", x),
             Instruction::Jmp(x) => format!("jmp {}\n", x),
             Instruction::Shr { dest, shift_by } => format!("shr {}, {}\n", dest.intel_syntax(), shift_by),
-            Instruction::And { dest, src } => format!("and {}, {}\n", dest.intel_syntax(), src.intel_syntax()),
-            Instruction::Or { dest, src } => format!("or {}, {}\n", dest.intel_syntax(), src.intel_syntax()),
-            Instruction::BitwiseNot(x) => format!("not {}\n", x.intel_syntax()),
+            Instruction::BitwiseAnd { dest, src } => format!("and qword {}, {}\n", dest.intel_syntax(), src.intel_syntax()),
+            Instruction::BitwiseOr { dest, src } => format!("or qword {}, {}\n", dest.intel_syntax(), src.intel_syntax()),
+            Instruction::BitwiseNot(x) => format!("not qword {}\n", x.intel_syntax()),
             Instruction::PushFlags => "pushf\n".to_string(),
             Instruction::Cmp { dest, src } => format!("cmp {}, {}\n", dest.intel_syntax(), src.intel_syntax()),
             Instruction::Je(x) => format!("je {}\n", x),
