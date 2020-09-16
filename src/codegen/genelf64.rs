@@ -16,6 +16,7 @@ impl GenerateElf64 {
     fn new() -> Self {
         GenerateElf64 {
             text_section: vec![
+                Instruction::Comment(format!("Target: {}", Self::TARGET_NAME)),
                 Instruction::Section("text".to_string()),
                 Instruction::Global("_start".to_string()),
                 Instruction::Label("_start".to_string())
@@ -281,6 +282,7 @@ trait AssemblyDisplay {
 
 #[derive(Clone)]
 enum Instruction {
+    Comment(String),
     Section(String),
     Global(String),
     Label(String),
@@ -317,6 +319,7 @@ enum Instruction {
 impl AssemblyDisplay for Instruction {
     fn intel_syntax(self) -> String {
         match self {
+            Instruction::Comment(x) => format!("; {}\n", x),
             Instruction::Section(x) => format!("section .{}\n", x),
             Instruction::Global(x) => format!("global {}\n", x),
             Instruction::Label(x) => format!("{}:\n", x),

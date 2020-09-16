@@ -9,32 +9,31 @@ mod parsing;
 mod checking;
 mod codegen;
 
+use stream::Stream;
 use std::io::prelude::*;
 use std::{ env, fs, io, fmt };
 use std::path::{ Path, PathBuf };
 
 fn main() {
+    println!("-- Till Compiler {} --\n", env!("CARGO_PKG_VERSION"));
+
     // Only enable logging if debug build:
     #[cfg(debug_assertions)]
     pretty_env_logger::init_timed();
 
     let args: Vec<String> = env::args().collect();
 
-    println!("{:?}", args);
-
     match args.len() {
-        3 => compile(&args[1], &args[2]),
-        2 => compile(&args[1], "a.out"),
-        _ => println!("Please use the following syntax: till <input file path> [output file path]")
+        3 => read_compile_write(&args[1], &args[2]),
+        2 => read_compile_write(&args[1], "out.asm"),
+        _ => interactive()
     }
 }
 
 /// Read till code from the file at the specified input path, compile that code,
 /// and then write the resulting machine code to the file at the specified output
 /// path.
-fn compile(relative_in: &str, relative_out: &str) {
-    println!("-- Till Compiler {} --", env!("CARGO_PKG_VERSION"));
-
+fn read_compile_write(relative_in: &str, relative_out: &str) {
     let in_path = to_full_path(relative_in);
     let out_path = to_full_path(relative_out);
 
@@ -42,26 +41,42 @@ fn compile(relative_in: &str, relative_out: &str) {
         Ok(file) => {
             println!("Opening input file: {}", in_path.display());
 
-            let strm = stream::Stream::from_file(file);
-
-            let tokens = lexing::lexer::input(strm).filter_map(|x| display_any_failures(x, "lexical"));
-            let syntax_tree = parsing::parser::input(tokens).filter_map(|x| display_any_failures(x, "syntax"));
-            let final_ir = display_any_failures(checking::checker::input(syntax_tree), "semantic").unwrap();
-            let asm = codegen::genelf64::input(final_ir);
+            let asm = compile(Stream::from_file(file));
 
             match fs::File::create(&out_path) {
                 Ok(mut out_file) => {
                     match out_file.write_all(asm.as_bytes()) {
-                        Ok(_) => println!("Wrote to output file: {}", out_path.display()),
-                        Err(e) => display_file_error(e, &out_path)
+                        Ok(_) => println!("Writing to output file: {}", out_path.display()),
+                        Err(e) => display_file_error(e, out_path.display())
                     }
                 }
                 
-                Err(e) => display_file_error(e, &out_path)
+                Err(e) => display_file_error(e, out_path.display())
             }
         }
-        Err(e) => display_file_error(e, &in_path)
+        Err(e) => display_file_error(e, in_path.display())
     }
+}
+
+fn interactive() {
+    println!("Please type your code and then press Ctrl-D to compile...");
+
+    let mut buf = String::new();
+
+    match io::stdin().lock().read_to_string(&mut buf) {
+        Ok(_) => {
+            let asm = compile(Stream::from_str(&buf));
+            println!("\n{}", asm);
+        }
+        Err(e) => display_file_error(e, "<stdin>")
+    }
+}
+
+fn compile(strm: Stream) -> String {
+    let tokens = lexing::lexer::input(strm).filter_map(|x| display_any_failures(x, "lexical"));
+    let syntax_tree = parsing::parser::input(tokens).filter_map(|x| display_any_failures(x, "syntax"));
+    let final_ir = display_any_failures(checking::checker::input(syntax_tree), "semantic").unwrap();
+    codegen::genelf64::input(final_ir)
 }
 
 fn display_any_failures<T, E: fmt::Display>(value: Result<T, E>, compilation_stage: &str) -> Option<T> {
@@ -72,12 +87,12 @@ fn display_any_failures<T, E: fmt::Display>(value: Result<T, E>, compilation_sta
     value.ok()
 }
 
-fn display_file_error(e: std::io::Error, path: &Path) {
+fn display_file_error<T: fmt::Display>(e: std::io::Error, path: T) {
     match e.kind() {
-        io::ErrorKind::NotFound => println!("File not found at: {}", path.display()),
-        io::ErrorKind::PermissionDenied => println!("Lack required permissions to access file at: {}", path.display()),
+        io::ErrorKind::NotFound => println!("File not found at: {}", path),
+        io::ErrorKind::PermissionDenied => println!("Lack required permissions to access file at: {}", path),
         kind => {
-            println!("Error occured when attempting to access file at: {}", path.display());
+            println!("Error occured when attempting to access file at: {}", path);
             log::error!("File error kind: {:?}", kind);
         }
     }
