@@ -18,9 +18,9 @@
     * [x] For statements
   * [x] Ensure scoping rules are met
   * [x] Produce a final immediate representation of the input program
-* [ ] Code generator
-  * [ ] Produce machine code using the final IR
-  * [ ] Write the machine code to an output file
+* [x] Code generator
+  * [x] Produce assembly using the final IR
+  * [x] Write the assembly to an output file
 * [ ] Provide appropriate debug logging at all stages
 * [ ] Provide clear error messages to the user should their program be invalid
 * [ ] Test extensively
