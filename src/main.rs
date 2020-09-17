@@ -3,6 +3,14 @@
 //! 
 //! [See on GitHub](https://github.com/WiredSound/till)
 
+#![macro_use]
+#[macro_export]
+macro_rules! assert_pattern {
+    ($x:expr, $y:pat) => {
+        match $x { $y => {}, _ => panic!() }
+    };
+}
+
 mod stream;
 mod lexing;
 mod parsing;

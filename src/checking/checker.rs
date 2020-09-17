@@ -1,7 +1,7 @@
 //! Contains code for the semantic analysis of a till AST and its conversion to
 //! a final immediate representation of the input program.
 
-use crate::parsing;
+use crate::{ stream, parsing };
 
 pub fn input<T: Iterator<Item=parsing::Statement>>(stmts: T) -> super::Result<Vec<super::Instruction>> {
     Checker::new(stmts).execute()
@@ -43,7 +43,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         self.begin_new_scope();
     
         while let Some(stmt) = self.stmts.next() {
-            self.check_stmt(&stmt)?;
+            self.check_stmt(stmt)?;
         }
 
         log::info!("Reached end of statement stream - ending program scope");
@@ -57,10 +57,10 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
     /// Check the validity of a given statement. May return a type in the case of
     /// the statement being a return statement or a while or if statement with a
     /// block containing a return statement.
-    fn check_stmt(&mut self, stmt: &parsing::Statement) -> super::Result<Option<super::Type>> {
+    fn check_stmt(&mut self, stmt: parsing::Statement) -> super::Result<Option<super::Type>> {
         match stmt {
             parsing::Statement::Return(Some(expr)) => {
-                let value = self.check_expr(expr)?;
+                let (value, _) = self.check_expr(expr)?;
                 self.final_ir.push(super::Instruction::ReturnValue);
                 Ok(Some(value))
             }
@@ -76,7 +76,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                 let start_id = self.new_id();
                 self.final_ir.push(super::Instruction::Label(start_id));
 
-                let (block_ret_type, _) = self.check_block(block, &Vec::new())?;
+                let (block_ret_type, _) = self.check_block(block, vec![])?;
                 self.final_ir.push(super::Instruction::Label(block_end_id));
 
                 self.expect_expr_type(condition, super::Type::Bool)?;
@@ -91,7 +91,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                 self.expect_expr_type(condition, super::Type::Bool)?;
                 self.final_ir.push(super::Instruction::JumpIfFalse(skip_block_id));
 
-                let (block_ret_type, _) = self.check_block(block, &Vec::new())?;
+                let (block_ret_type, _) = self.check_block(block, vec![])?;
 
                 self.final_ir.push(super::Instruction::Label(skip_block_id));
 
@@ -99,12 +99,12 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
             }
 
             parsing::Statement::VariableDeclaration { var_type, identifier, value } => {
-                let checking_type = super::Type::from_parsing_type(var_type)?;
+                let checking_type = super::Type::from_parsing_type(&var_type)?;
 
                 let var_id = { 
                     // If variable is already defined then ensure it is being redeclared
                     // to the same type:
-                    if let Some(existing_def) = self.get_inner_scope().find_variable_def(identifier) {
+                    if let Some(existing_def) = self.get_inner_scope().find_variable_def(&identifier) {
                         log::trace!("Redeclaring variable '{}' in same scope", identifier);
 
                         if checking_type != existing_def.var_type {
@@ -120,7 +120,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                     else {
                         log::trace!("Introducing variable '{}' to current scope", identifier);
 
-                        self.introduce_variable_to_inner_scope(identifier, checking_type.clone())
+                        self.introduce_variable_to_inner_scope(&identifier, checking_type.clone())
                     }
                 };
 
@@ -137,9 +137,9 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
 
             parsing::Statement::VariableAssignment { identifier, assign_to } => {
                 let var_id = {
-                    let assign_to_type = self.check_expr(assign_to)?;
+                    let (assign_to_type, strm_pos) = self.check_expr(assign_to)?;
                     
-                    let var_def = self.variable_lookup(identifier)?;
+                    let var_def = self.variable_lookup(&identifier, &strm_pos)?;
 
                     if var_def.var_type != assign_to_type {
                         return Err(super::Failure::UnexpectedType {
@@ -173,20 +173,20 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
 
                 // Is a function with the same identifier and type signature
                 // defined and accessible from this scope?
-                if self.function_lookup(identifier, param_types.as_slice()).is_ok() {
+                if self.function_lookup(&identifier, param_types.as_slice()).is_ok() {
                     Err(super::Failure::RedefinedExistingFunction(identifier.to_string(), param_types.to_vec()))
                 }
                 else {
                     // Return type specified in function signature:
                     if let Some(parsing_return_type) = return_type {
-                        let expected_return_type = super::Type::from_parsing_type(parsing_return_type)?;
+                        let expected_return_type = super::Type::from_parsing_type(&parsing_return_type)?;
 
                         // Function body should return something if a return type
                         // has been specified in the signature:
                         if let Some(body_return_type) = optional_body_return_type {
                             // Are those types the same?
                             if body_return_type == expected_return_type {
-                                self.introduce_function(identifier, param_types.as_slice(), Some(body_return_type), start_id);
+                                self.introduce_function(identifier, param_types, Some(body_return_type), start_id);
                                 Ok(None)
                             }
                             else {
@@ -198,7 +198,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                         }
                         else {
                             return Err(super::Failure::FunctionDoesNotReturn(
-                                identifier.to_string(), param_types.to_vec(),
+                                identifier, param_types.to_vec(),
                                 expected_return_type
                             ));
                         }
@@ -207,12 +207,12 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                         // Does function body return something?
                         if let Some(body_return_type) = optional_body_return_type {
                             Err(super::Failure::VoidFunctionReturnsValue(
-                                identifier.to_string(), param_types.to_vec(),
+                                identifier, param_types.to_vec(),
                                 body_return_type
                             ))
                         }
                         else {
-                            self.introduce_function(identifier, param_types.as_slice(), None, start_id);
+                            self.introduce_function(identifier, param_types, None, start_id);
                             Ok(None)
                         }
                     }
@@ -225,7 +225,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
     /// a return statement be encountered, the type of the returned expression
     /// is returned within `Ok(Some(...), ...)`. If there are multiple return
     /// statements then it will be ensured that they are all returning the same type.
-    fn check_block(&mut self, block: &parsing::Block, params: &Vec<parsing::Parameter>) -> super::Result<(Option<super::Type>, Vec<super::Type>)> {
+    fn check_block(&mut self, block: parsing::Block, params: Vec<parsing::Parameter>) -> super::Result<(Option<super::Type>, Vec<super::Type>)> {
         let mut ret_type = None;
 
         self.begin_new_scope();
@@ -293,7 +293,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
 
     /// Search the current accessible scopes for the variable definition with
     /// the given identifier.
-    fn variable_lookup(&self, ident: &str) -> super::Result<&super::VariableDef> {
+    fn variable_lookup(&self, ident: &str, strm_pos: &stream::Position) -> super::Result<&super::VariableDef> {
         // Reverse the iterator so that the inner most scope has priority (i.e.
         // automatically handle shadowing).
         for scope in self.scopes.iter().rev() {
@@ -301,7 +301,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                 return Ok(var_def)
             }
         }
-        Err(super::Failure::VariableNotInScope(ident.to_string()))
+        Err(super::Failure::VariableNotInScope(strm_pos.clone(), ident.to_string()))
     }
 
     /// Introduce a new variable into the current inner most scope. Will also
@@ -332,12 +332,10 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         Err(super::Failure::FunctionNotInScope(ident.to_string(), params.to_vec()))
     }
 
-    fn introduce_function(&mut self, ident: &str, params: &[super::Type], return_type: Option<super::Type>, start_id: super::Id) {
+    fn introduce_function(&mut self, ident: String, params: Vec<super::Type>, return_type: Option<super::Type>, start_id: super::Id) {
         self.get_inner_scope().function_defs.push(super::FunctionDef {
-            identifier: ident.to_string(),
-            parameter_types: params.to_vec(),
-            id: start_id,
-            return_type
+            identifier: ident, parameter_types: params,
+            id: start_id, return_type
         });
     }
 
@@ -350,29 +348,32 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
 
     /// Check the validity of a given expression as well as insert the appropriate
     /// instructions into the final IR.
-    fn check_expr(&mut self, expr: &parsing::Expression) -> super::Result<super::Type> {
+    fn check_expr(&mut self, expr: parsing::Expression) -> super::Result<(super::Type, stream::Position)> {
         match expr {
-            parsing::Expression::Variable { pos: _, identifier } => {
+            parsing::Expression::Variable { pos, identifier } => {
                 log::trace!("Searching scope for the type of referenced variable with identifier '{}'", identifier);
 
                 let (var_type, id) = {
-                    let def = self.variable_lookup(identifier)?;
+                    let def = self.variable_lookup(&identifier, &pos)?;
                     (def.var_type.clone(), def.id)
                 };
 
                 self.final_ir.push(super::Instruction::Push(super::Value::Variable(id)));
 
-                Ok(var_type)
+                Ok((var_type, pos))
             }
 
-            parsing::Expression::FunctionCall {pos: _, identifier, args } => {
+            parsing::Expression::FunctionCall {pos, identifier, args } => {
                 log::trace!("Searching scope for the return type of referenced function '{}' given arguments {:?}", identifier, args);
 
                 let mut arg_types = Vec::new();
-                for arg in args { arg_types.push(self.check_expr(arg)?) }
+                for arg in args {
+                    let (arg_type, _) = self.check_expr(arg)?;
+                    arg_types.push(arg_type); 
+                }
 
                 let (ident, option_ret_type, id) = {
-                    let def = self.function_lookup(identifier, arg_types.as_slice())?;
+                    let def = self.function_lookup(&identifier, arg_types.as_slice())?;
                     (def.identifier.clone(), def.return_type.clone(), def.id)
                 };
 
@@ -382,51 +383,39 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                 );
 
                 match option_ret_type {
-                    Some(ret_type) => Ok(ret_type.clone()),
+                    Some(ret_type) => Ok((ret_type.clone(), pos)),
                     None => Err(super::Failure::VoidFunctionInExpr(ident, arg_types))
                 }
             }
 
-            parsing::Expression::Add(l, r) => {
-                self.verify_arithmetic_expr(l, r, super::Instruction::Add, "addition")?;
-                Ok(super::Type::Num)
-            }
+            parsing::Expression::Add(l, r) =>
+                Ok((super::Type::Num, self.verify_arithmetic_expr(*l, *r, super::Instruction::Add, "addition")?)),
 
-            parsing::Expression::Subtract(l, r) => {
-                self.verify_arithmetic_expr(l, r, super::Instruction::Subtract, "subtraction")?;
-                Ok(super::Type::Num)
-            }
+            parsing::Expression::Subtract(l, r) =>
+                Ok((super::Type::Num, self.verify_arithmetic_expr(*l, *r, super::Instruction::Subtract, "subtraction")?)),
 
-            parsing::Expression::Multiply(l, r) => {
-                self.verify_arithmetic_expr(l, r, super::Instruction::Multiply, "multiplication")?;
-                Ok(super::Type::Num)
-            }
+            parsing::Expression::Multiply(l, r) =>
+                Ok((super::Type::Num, self.verify_arithmetic_expr(*l, *r, super::Instruction::Multiply, "multiplication")?)),
 
-            parsing::Expression::Divide(l, r) => {
-                self.verify_arithmetic_expr(l, r, super::Instruction::Divide, "divide")?;
-                Ok(super::Type::Num)
-            }
+            parsing::Expression::Divide(l, r) =>
+                Ok((super::Type::Num, self.verify_arithmetic_expr(*l, *r, super::Instruction::Divide, "divide")?)),
 
-            parsing::Expression::GreaterThan(l, r) => {
-                self.verify_arithmetic_expr(l, r, super::Instruction::GreaterThan, "greater than")?;
-                Ok(super::Type::Bool)
-            }
+            parsing::Expression::GreaterThan(l, r) =>
+                Ok((super::Type::Bool, self.verify_arithmetic_expr(*l, *r, super::Instruction::GreaterThan, "greater than")?)),
 
-            parsing::Expression::LessThan(l, r) => {
-                self.verify_arithmetic_expr(l, r, super::Instruction::LessThan, "less than")?;
-                Ok(super::Type::Bool)
-            }
+            parsing::Expression::LessThan(l, r) =>
+                Ok((super::Type::Bool, self.verify_arithmetic_expr(*l, *r, super::Instruction::LessThan, "less than")?)),
 
             parsing::Expression::Equal(left, right) => {
                 log::trace!("Verifying types of equality expression - types on both sides of the operator should be the same");
 
-                let left_type = self.check_expr(left)?;
-                let right_type = self.check_expr(right)?;
+                let (left_type, strm_pos) = self.check_expr(*left)?;
+                let (right_type, _) = self.check_expr(*right)?;
 
                 if left_type == right_type {
                     self.final_ir.push(super::Instruction::Equals);
 
-                    Ok(super::Type::Bool)
+                    Ok((super::Type::Bool, strm_pos))
                 }
                 else {
                     Err(super::Failure::UnexpectedType {
@@ -439,57 +428,57 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
             parsing::Expression::BooleanNot(expr) => {
                 log::trace!("Verifying type of expression to which boolean NOT operator is being applied - expecting Bool expression to right of operator");
 
-                self.expect_expr_type(expr, super::Type::Bool)?;
+                let strm_pos = self.expect_expr_type(*expr, super::Type::Bool)?;
                 self.final_ir.push(super::Instruction::Not);
 
-                Ok(super::Type::Bool)
+                Ok((super::Type::Bool, strm_pos))
             }
 
             parsing::Expression::UnaryMinus(expr) => {
                 log::trace!("Verify type of expression to which unary minus is being applied - expecting Num");
 
                 self.final_ir.push(super::Instruction::Push(super::Value::Num(0.0)));
-                self.expect_expr_type(expr, super::Type::Num)?;
+                let strm_pos = self.expect_expr_type(*expr, super::Type::Num)?;
                 self.final_ir.push(super::Instruction::Subtract);
 
-                Ok(super::Type::Num)
+                Ok((super::Type::Num, strm_pos))
             }
 
-            parsing::Expression::NumberLiteral {pos: _, value } => {
-                self.final_ir.push(super::Instruction::Push(super::Value::Num(*value)));
+            parsing::Expression::NumberLiteral {pos, value } => {
+                self.final_ir.push(super::Instruction::Push(super::Value::Num(value)));
 
-                Ok(super::Type::Num)
+                Ok((super::Type::Num, pos))
             }
-            parsing::Expression::BooleanLiteral { pos: _, value } => {
-                self.final_ir.push(super::Instruction::Push(super::Value::Bool(*value)));
+            parsing::Expression::BooleanLiteral { pos, value } => {
+                self.final_ir.push(super::Instruction::Push(super::Value::Bool(value)));
 
-                Ok(super::Type::Bool)
+                Ok((super::Type::Bool, pos))
             }
-            parsing::Expression::CharLiteral { pos: _, value } => {
-                self.final_ir.push(super::Instruction::Push(super::Value::Char(*value)));
+            parsing::Expression::CharLiteral { pos, value } => {
+                self.final_ir.push(super::Instruction::Push(super::Value::Char(value)));
 
-                Ok(super::Type::Char)
+                Ok((super::Type::Char, pos))
             }
         }
     }
 
     /// Ensure the two sub-expressions of an arithmetic expression are both of
     /// Num type. Insert the relevant final IR instruction also.
-    fn verify_arithmetic_expr(&mut self, left: &parsing::Expression, right: &parsing::Expression, instruction: super::Instruction, expr_type: &str) -> super::Result<()> {
+    fn verify_arithmetic_expr(&mut self, left: parsing::Expression, right: parsing::Expression, instruction: super::Instruction, expr_type: &str) -> super::Result<stream::Position> {
         log::trace!("Verifying types of {} expression - Num type on both sides of operator expected", expr_type);
 
-        self.expect_expr_type(left, super::Type::Num)?;
+        let strm_pos = self.expect_expr_type(left, super::Type::Num)?;
         self.expect_expr_type(right, super::Type::Num)?;
 
         self.final_ir.push(instruction);
 
-        Ok(())
+        Ok(strm_pos)
     }
 
-    fn expect_expr_type(&mut self, expr: &parsing::Expression, expected: super::Type) -> super::Result<()> {
-        let expr_type = self.check_expr(expr)?;
+    fn expect_expr_type(&mut self, expr: parsing::Expression, expected: super::Type) -> super::Result<stream::Position> {
+        let (expr_type, strm_pos) = self.check_expr(expr)?;
         
-        if expr_type == expected { Ok(()) }
+        if expr_type == expected { Ok(strm_pos) }
         else { Err(super::Failure::UnexpectedType { expected, encountered: expr_type }) }
     }
 }
@@ -499,7 +488,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
 #[cfg(test)]
 mod tests {
     use std::iter;
-    use crate::{ parsing, checking, stream::Position };
+    use crate::{ assert_pattern, parsing, checking, stream::Position };
 
     fn new_empty_checker() -> super::Checker<iter::Empty<parsing::Statement>> {
         let mut chkr = super::Checker::new(iter::empty());
@@ -511,8 +500,10 @@ mod tests {
     fn scoping() {
         let mut chkr = new_empty_checker();
 
+        let pos = Position::new();
+
         chkr.introduce_variable_to_inner_scope("outer", checking::Type::Num);
-        assert_eq!(chkr.variable_lookup("outer"), Ok(&checking::VariableDef {
+        assert_eq!(chkr.variable_lookup("outer", &pos), Ok(&checking::VariableDef {
             identifier: "outer".to_string(),
             var_type: checking::Type::Num,
             id: 0
@@ -522,16 +513,16 @@ mod tests {
 
         chkr.introduce_variable_to_inner_scope("inner", checking::Type::Bool);
 
-        assert!(chkr.variable_lookup("inner").is_ok());
-        assert!(chkr.variable_lookup("outer").is_ok());
+        assert!(chkr.variable_lookup("inner", &pos).is_ok());
+        assert!(chkr.variable_lookup("outer", &pos).is_ok());
 
         chkr.end_scope();
 
-        assert!(chkr.variable_lookup("inner").is_err());
-        assert!(chkr.variable_lookup("outer").is_ok());
-        assert!(chkr.variable_lookup("undefined").is_err());
+        assert!(chkr.variable_lookup("inner", &pos).is_err());
+        assert!(chkr.variable_lookup("outer", &pos).is_ok());
+        assert!(chkr.variable_lookup("undefined", &pos).is_err());
 
-        chkr.introduce_function("xyz", &[checking::Type::Char], Some(checking::Type::Num), 0);
+        chkr.introduce_function("xyz".to_string(), vec![checking::Type::Char], Some(checking::Type::Num), 0);
         
         assert_eq!(chkr.function_lookup("xyz", &[checking::Type::Char]), Ok(&checking::FunctionDef {
             identifier: "xyz".to_string(),
@@ -546,31 +537,31 @@ mod tests {
     fn check_exprs() {
         let mut chkr = new_empty_checker();
 
-        assert_eq!(
-            chkr.check_expr(&parsing::Expression::NumberLiteral { pos: Position::new(), value: 10.5 }),
-            Ok(checking::Type::Num)
+        assert_pattern!(
+            chkr.check_expr(parsing::Expression::NumberLiteral { pos: Position::new(), value: 10.5 }),
+            Ok((checking::Type::Num, _))
         );
 
-        assert_eq!(
-            chkr.check_expr(&parsing::Expression::BooleanLiteral { pos: Position::new(), value: true }),
-            Ok(checking::Type::Bool)
+        assert_pattern!(
+            chkr.check_expr(parsing::Expression::BooleanLiteral { pos: Position::new(), value: true }),
+            Ok((checking::Type::Bool, _))
         );
 
-        assert_eq!(
-            chkr.check_expr(&parsing::Expression::CharLiteral { pos: Position::new(), value: '話' }),
-            Ok(checking::Type::Char)
+        assert_pattern!(
+            chkr.check_expr(parsing::Expression::CharLiteral { pos: Position::new(), value: '話' }),
+            Ok((checking::Type::Char, _))
         );
 
-        assert_eq!(
-            chkr.check_expr(&parsing::Expression::Equal(
+        assert_pattern!(
+            chkr.check_expr(parsing::Expression::Equal(
                 Box::new(parsing::Expression::CharLiteral { pos: Position::new(), value: 'x' }),
                 Box::new(parsing::Expression::CharLiteral { pos: Position::new(), value: 'y' })
             )),
-            Ok(checking::Type::Bool)
+            Ok((checking::Type::Bool, _))
         );
 
         assert_eq!(
-            chkr.check_expr(&parsing::Expression::Equal(
+            chkr.check_expr(parsing::Expression::Equal(
                 Box::new(parsing::Expression::NumberLiteral { pos: Position::new(), value: 1.5 }),
                 Box::new(parsing::Expression::BooleanLiteral { pos: Position::new(), value: false })
             )),
@@ -580,16 +571,16 @@ mod tests {
             })
         );
 
-        assert_eq!(
-            chkr.check_expr(&parsing::Expression::GreaterThan(
+        assert_pattern!(
+            chkr.check_expr(parsing::Expression::GreaterThan(
                 Box::new(parsing::Expression::NumberLiteral { pos: Position::new(), value: 1.34 }),
                 Box::new(parsing::Expression::NumberLiteral { pos: Position::new(), value: 0.95 })
             )),
-            Ok(checking::Type::Bool)
+            Ok((checking::Type::Bool, _))
         );
 
         assert_eq!(
-            chkr.check_expr(&parsing::Expression::LessThan(
+            chkr.check_expr(parsing::Expression::LessThan(
                 Box::new(parsing::Expression::CharLiteral { pos: Position::new(), value: 'b' }),
                 Box::new(parsing::Expression::CharLiteral { pos: Position::new(), value: 'a' })
             )),
@@ -599,16 +590,16 @@ mod tests {
             })
         );
 
-        assert_eq!(
-            chkr.check_expr(&parsing::Expression::Add(
+        assert_pattern!(
+            chkr.check_expr(parsing::Expression::Add(
                 Box::new(parsing::Expression::NumberLiteral { pos: Position::new(), value: 10.0 }),
                 Box::new(parsing::Expression::NumberLiteral { pos: Position::new(), value: 11.2 })
             )),
-            Ok(checking::Type::Num)
+            Ok((checking::Type::Num, _))
         );
 
         assert_eq!(
-            chkr.check_expr(&parsing::Expression::Divide(
+            chkr.check_expr(parsing::Expression::Divide(
                 Box::new(parsing::Expression::CharLiteral { pos: Position::new(), value: 'x' }),
                 Box::new(parsing::Expression::BooleanLiteral { pos: Position::new(), value: false })
             )),
@@ -618,39 +609,39 @@ mod tests {
             })
         );
 
-        assert_eq!(
-            chkr.check_expr(&parsing::Expression::Variable {
+        assert_pattern!(
+            chkr.check_expr(parsing::Expression::Variable {
                 pos: Position::new(),
                 identifier: "undefined".to_string()
             }),
-            Err(checking::Failure::VariableNotInScope("undefined".to_string()))
+            Err(checking::Failure::VariableNotInScope(_, _))
         );
 
         chkr.introduce_variable_to_inner_scope("var", checking::Type::Num);
 
         chkr.begin_new_scope();
-        assert_eq!(
-            chkr.check_expr(&parsing::Expression::Variable {
+        assert_pattern!(
+            chkr.check_expr(parsing::Expression::Variable {
                 pos: Position::new(),
                 identifier: "var".to_string()
             }),
-            Ok(checking::Type::Num)
+            Ok((checking::Type::Num, _))
         );
         chkr.end_scope();
 
-        chkr.introduce_function("func", &[], Some(checking::Type::Num), 0);
+        chkr.introduce_function("func".to_string(), vec![], Some(checking::Type::Num), 0);
 
-        assert_eq!(
-            chkr.check_expr(&parsing::Expression::FunctionCall {
+        assert_pattern!(
+            chkr.check_expr(parsing::Expression::FunctionCall {
                 pos: Position::new(),
                 identifier: "func".to_string(),
                 args: vec![]
             }),
-            Ok(checking::Type::Num)
+            Ok((checking::Type::Num, _))
         );
 
         assert_eq!(
-            chkr.check_expr(&parsing::Expression::FunctionCall {
+            chkr.check_expr(parsing::Expression::FunctionCall {
                 pos: Position::new(),
                 identifier: "func".to_string(),
                 args: vec![
@@ -660,10 +651,10 @@ mod tests {
             Err(checking::Failure::FunctionNotInScope("func".to_string(), vec![checking::Type::Num]))
         );
 
-        chkr.introduce_function("abc", &[checking::Type::Char], None, 1);
+        chkr.introduce_function("abc".to_string(), vec![checking::Type::Char], None, 1);
 
         assert_eq!(
-            chkr.check_expr(&parsing::Expression::FunctionCall {
+            chkr.check_expr(parsing::Expression::FunctionCall {
                 pos: Position::new(),
                 identifier: "abc".to_string(),
                 args: vec![
@@ -679,12 +670,12 @@ mod tests {
         let mut chkr = new_empty_checker();
 
         assert_eq!(
-            chkr.check_stmt(&parsing::Statement::Return(None)),
+            chkr.check_stmt(parsing::Statement::Return(None)),
             Ok(None)
         );
 
         assert_eq!(
-            chkr.check_stmt(&parsing::Statement::Return(Some(
+            chkr.check_stmt(parsing::Statement::Return(Some(
                 parsing::Expression::Add(
                     Box::new(parsing::Expression::NumberLiteral { pos: Position::new(), value: 1.2 }),
                     Box::new(parsing::Expression::NumberLiteral { pos: Position::new(), value: 2.8 })
@@ -694,7 +685,7 @@ mod tests {
         );
 
         assert_eq!(
-            chkr.check_stmt(&parsing::Statement::If {
+            chkr.check_stmt(parsing::Statement::If {
                 condition: parsing::Expression::BooleanLiteral { pos: Position::new(), value: true },
                 block: vec![
                     parsing::Statement::Return(Some(parsing::Expression::CharLiteral { pos: Position::new(), value: 'x' }))
@@ -704,17 +695,17 @@ mod tests {
         );
 
         assert_eq!(
-            chkr.check_stmt(&parsing::Statement::VariableDeclaration {
+            chkr.check_stmt(parsing::Statement::VariableDeclaration {
                 identifier: "pi".to_string(),
                 var_type: "Num".to_string(),
                 value: Some(parsing::Expression::NumberLiteral { pos: Position::new(), value: 3.14 })
             }),
             Ok(None)
         );
-        assert!(chkr.variable_lookup("pi").is_ok());
+        assert!(chkr.variable_lookup("pi", &Position::new()).is_ok());
 
         assert_eq!(
-            chkr.check_stmt(&parsing::Statement::VariableDeclaration {
+            chkr.check_stmt(parsing::Statement::VariableDeclaration {
                 identifier: "xyz".to_string(),
                 var_type: "Oops".to_string(),
                 value: None
@@ -723,7 +714,7 @@ mod tests {
         );
 
         assert_eq!(
-            chkr.check_stmt(&parsing::Statement::VariableAssignment {
+            chkr.check_stmt(parsing::Statement::VariableAssignment {
                 identifier: "pi".to_string(),
                 assign_to: parsing::Expression::NumberLiteral { pos: Position::new(), value: 3.1 }
             }),
@@ -731,7 +722,7 @@ mod tests {
         );
 
         assert_eq!(
-            chkr.check_stmt(&parsing::Statement::VariableAssignment {
+            chkr.check_stmt(parsing::Statement::VariableAssignment {
                 identifier: "pi".to_string(),
                 assign_to: parsing::Expression::BooleanLiteral { pos: Position::new(), value: true }
             }),
@@ -742,7 +733,7 @@ mod tests {
         );
 
         assert_eq!(
-            chkr.check_stmt(&parsing::Statement::FunctionDefinition {
+            chkr.check_stmt(parsing::Statement::FunctionDefinition {
                 identifier: "func".to_string(),
                 parameters: vec![],
                 return_type: None,
@@ -753,7 +744,7 @@ mod tests {
         assert!(chkr.function_lookup("func", &[])?.return_type.is_none());
 
         assert_eq!(
-            chkr.check_stmt(&parsing::Statement::FunctionDefinition {
+            chkr.check_stmt(parsing::Statement::FunctionDefinition {
                 identifier: "func".to_string(),
                 parameters: vec![],
                 return_type: Some("Num".to_string()),
@@ -769,7 +760,7 @@ mod tests {
         );
 
         assert_eq!(
-            chkr.check_stmt(&parsing::Statement::FunctionDefinition {
+            chkr.check_stmt(parsing::Statement::FunctionDefinition {
                 identifier: "func".to_string(),
                 parameters: vec![
                     parsing::Parameter {
@@ -787,7 +778,7 @@ mod tests {
         );
 
         assert_eq!(
-            chkr.check_stmt(&parsing::Statement::FunctionDefinition {
+            chkr.check_stmt(parsing::Statement::FunctionDefinition {
                 identifier: "xyz".to_string(),
                 parameters: vec![],
                 return_type: None,
@@ -803,7 +794,7 @@ mod tests {
         );
 
         assert_eq!(
-            chkr.check_stmt(&parsing::Statement::FunctionDefinition {
+            chkr.check_stmt(parsing::Statement::FunctionDefinition {
                 identifier: "useless_function".to_string(),
                 parameters: vec![
                     parsing::Parameter {
@@ -828,7 +819,9 @@ mod tests {
     fn variable_shadowing() -> checking::Result<()> {
         let mut chkr = new_empty_checker();
 
-        chkr.check_stmt(&parsing::Statement::VariableDeclaration {
+        let pos = Position::new();
+
+        chkr.check_stmt(parsing::Statement::VariableDeclaration {
             identifier: "x".to_string(),
             var_type: "Num".to_string(),
             value: None
@@ -838,20 +831,20 @@ mod tests {
 
         // Shadow variable 'x' by declaring a variable in the inner scope of the
         // same name but a different type:
-        chkr.check_stmt(&parsing::Statement::VariableDeclaration {
+        chkr.check_stmt(parsing::Statement::VariableDeclaration {
             identifier: "x".to_string(),
             var_type: "Bool".to_string(),
             value: None
         })?;
 
-        assert_eq!(chkr.variable_lookup("x")?.var_type, checking::Type::Bool);
+        assert_eq!(chkr.variable_lookup("x", &pos)?.var_type, checking::Type::Bool);
 
         chkr.end_scope();
 
-        assert_eq!(chkr.variable_lookup("x")?.var_type, checking::Type::Num);
+        assert_eq!(chkr.variable_lookup("x", &pos)?.var_type, checking::Type::Num);
 
         assert_eq!(
-            chkr.check_stmt(&parsing::Statement::VariableDeclaration {
+            chkr.check_stmt(parsing::Statement::VariableDeclaration {
                 identifier: "x".to_string(),
                 var_type: "Char".to_string(),
                 value: None

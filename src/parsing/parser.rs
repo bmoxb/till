@@ -479,15 +479,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
 #[cfg(test)]
 #[allow(illegal_floating_point_literal_pattern)]
 mod tests {
-    use crate::parsing;
-    use crate::lexing::lexer;
-    use crate::stream::Stream;
-
-    macro_rules! assert_pattern {
-        ($x:expr, $y:pat) => {
-            match $x { $y => {}, _ => panic!() }
-        };
-    }
+    use crate::{ assert_pattern, parsing, lexing::lexer, stream::Stream };
 
     fn quick_parse(inp: &str) -> super::StatementStream<impl Iterator<Item=lexer::Token>> {
         let final_inp = inp.trim().replace("    ", "\t");
