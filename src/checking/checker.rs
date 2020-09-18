@@ -156,7 +156,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                 Ok(None)
             }
 
-            parsing::Statement::FunctionDefinition { identifier, parameters, return_type, body } => {
+            parsing::Statement::FunctionDefinition { pos, identifier, parameters, return_type, body } => {
                 // Function body should only run when function is called so skip
                 // over the body:
                 let end_id = self.new_id();
@@ -173,7 +173,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
 
                 // Is a function with the same identifier and type signature
                 // defined and accessible from this scope?
-                if self.function_lookup(&identifier, param_types.as_slice()).is_ok() {
+                if self.function_lookup(&identifier, param_types.as_slice(), &pos).is_ok() {
                     Err(super::Failure::RedefinedExistingFunction(identifier.to_string(), param_types.to_vec()))
                 }
                 else {
@@ -323,13 +323,13 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         id
     }
 
-    fn function_lookup(&self, ident: &str, params: &[super::Type]) -> super::Result<&super::FunctionDef> {
+    fn function_lookup(&self, ident: &str, params: &[super::Type], strm_pos: &stream::Position) -> super::Result<&super::FunctionDef> {
         for scope in self.scopes.iter().rev() {
             if let Some(func_def) = scope.find_function_def(ident, params) {
                 return Ok(func_def)
             }
         }
-        Err(super::Failure::FunctionNotInScope(ident.to_string(), params.to_vec()))
+        Err(super::Failure::FunctionNotInScope(strm_pos.clone(), ident.to_string(), params.to_vec()))
     }
 
     fn introduce_function(&mut self, ident: String, params: Vec<super::Type>, return_type: Option<super::Type>, start_id: super::Id) {
@@ -373,7 +373,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                 }
 
                 let (ident, option_ret_type, id) = {
-                    let def = self.function_lookup(&identifier, arg_types.as_slice())?;
+                    let def = self.function_lookup(&identifier, arg_types.as_slice(), &pos)?;
                     (def.identifier.clone(), def.return_type.clone(), def.id)
                 };
 
@@ -524,13 +524,13 @@ mod tests {
 
         chkr.introduce_function("xyz".to_string(), vec![checking::Type::Char], Some(checking::Type::Num), 0);
         
-        assert_eq!(chkr.function_lookup("xyz", &[checking::Type::Char]), Ok(&checking::FunctionDef {
+        assert_eq!(chkr.function_lookup("xyz", &[checking::Type::Char], &pos), Ok(&checking::FunctionDef {
             identifier: "xyz".to_string(),
             parameter_types: vec![checking::Type::Char],
             return_type: Some(checking::Type::Num), id: 0
         }));
 
-        assert!(chkr.function_lookup("xyz", &[checking::Type::Num]).is_err());
+        assert!(chkr.function_lookup("xyz", &[checking::Type::Num], &pos).is_err());
     }
 
     #[test]
@@ -640,16 +640,19 @@ mod tests {
             Ok((checking::Type::Num, _))
         );
 
-        assert_eq!(
-            chkr.check_expr(parsing::Expression::FunctionCall {
-                pos: Position::new(),
-                identifier: "func".to_string(),
-                args: vec![
-                    parsing::Expression::NumberLiteral { pos: Position::new(), value: 1.5 }
-                ]
-            }),
-            Err(checking::Failure::FunctionNotInScope("func".to_string(), vec![checking::Type::Num]))
-        );
+        match chkr.check_expr(parsing::Expression::FunctionCall {
+            pos: Position::new(),
+            identifier: "func".to_string(),
+            args: vec![
+                parsing::Expression::NumberLiteral { pos: Position::new(), value: 1.5 }
+            ]
+        }) {
+            Err(checking::Failure::FunctionNotInScope(_, ident, args)) => {
+                assert_eq!(ident, "func".to_string());
+                assert_eq!(args, vec![checking::Type::Num]);
+            }
+            _ => panic!()
+        }
 
         chkr.introduce_function("abc".to_string(), vec![checking::Type::Char], None, 1);
 
@@ -737,11 +740,12 @@ mod tests {
                 identifier: "func".to_string(),
                 parameters: vec![],
                 return_type: None,
-                body: vec![]
+                body: vec![],
+                pos: Position::new()
             }),
             Ok(None)
         );
-        assert!(chkr.function_lookup("func", &[])?.return_type.is_none());
+        assert!(chkr.function_lookup("func", &[], &Position::new())?.return_type.is_none());
 
         assert_eq!(
             chkr.check_stmt(parsing::Statement::FunctionDefinition {
@@ -752,7 +756,8 @@ mod tests {
                     parsing::Statement::Return(Some(parsing::Expression::NumberLiteral {
                         pos: Position::new(), value: 1.5
                     }))
-                ]
+                ],
+                pos: Position::new()
             }),
             Err(checking::Failure::RedefinedExistingFunction(
                 "func".to_string(), vec![]
@@ -769,7 +774,8 @@ mod tests {
                     }
                 ],
                 return_type: Some("Num".to_string()),
-                body: vec![]
+                body: vec![],
+                pos: Position::new()
             }),
             Err(checking::Failure::FunctionDoesNotReturn(
                 "func".to_string(), vec![checking::Type::Char],
@@ -786,7 +792,8 @@ mod tests {
                     parsing::Statement::Return(Some(parsing::Expression::BooleanLiteral {
                         pos: Position::new(), value: true
                     }))
-                ]
+                ],
+                pos: Position::new()
             }),
             Err(checking::Failure::VoidFunctionReturnsValue(
                 "xyz".to_string(), vec![], checking::Type::Bool
@@ -807,7 +814,8 @@ mod tests {
                     parsing::Statement::Return(Some(parsing::Expression::Variable {
                         pos: Position::new(), identifier: "x".to_string()
                     }))
-                ]
+                ],
+                pos: Position::new()
             }),
             Ok(None)
         );

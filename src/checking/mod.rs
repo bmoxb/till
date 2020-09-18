@@ -10,7 +10,7 @@ use std::fmt;
 #[derive(Debug, PartialEq)]
 pub enum Failure { // TODO: Show stream position in error messages.
     VariableNotInScope(stream::Position, String),
-    FunctionNotInScope(String, Vec<Type>),
+    FunctionNotInScope(stream::Position, String, Vec<Type>),
     VoidFunctionInExpr(String, Vec<Type>),
     RedefinedExistingFunction(String, Vec<Type>),
     VoidFunctionReturnsValue(String, Vec<Type>, Type),
@@ -24,7 +24,7 @@ impl fmt::Display for Failure {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Failure::VariableNotInScope(pos, ident) => write!(f, "Reference made at {} to variable '{}' which is either undefined or inaccessible from the current scope", pos, ident),
-            Failure::FunctionNotInScope(ident, params) => write!(f, "Call made to function '{}' with parameter types {:?} which is either undefined or inaccessible from the current scope", ident, params),
+            Failure::FunctionNotInScope(pos, ident, params) => write!(f, "Call made at {} to function '{}' with parameter types {:?} which is either undefined or inaccessible from the current scope", pos, ident, params),
             Failure::VoidFunctionInExpr(ident, params) => write!(f, "Function '{}' with parameter types {:?} has no return value and so cannot be used in an expression", ident, params),
             Failure::RedefinedExistingFunction(ident, params) => write!(f, "Function '{}' with parameter types {:?} has already been defined", ident, params),
             Failure::VoidFunctionReturnsValue(ident, params, ret_type) => write!(f, "Function '{}' with parameter types {:?} defined without return type yet has a block that returns a value of type {:?}", ident, params, ret_type),

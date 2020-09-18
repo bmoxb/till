@@ -45,6 +45,7 @@ pub enum Statement {
     },
 
     FunctionDefinition {
+        pos: stream::Position,
         identifier: String,
         parameters: Vec<Parameter>,
         return_type: Option<String>,

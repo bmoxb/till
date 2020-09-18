@@ -118,10 +118,12 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
             // Function definition or variable assignment:
             lexer::TokenType::Identifier(x) => {
                 let identifier = x.to_string();
-                let _ = self.consume_token(""); // Consume identifier token.
+
+                // Consume identifier token and take its stream position:
+                let pos = self.consume_token("").unwrap().lexeme.pos;
 
                 if self.check_type_of_peeked_token(&lexer::TokenType::BracketOpen, "statement")? {
-                    self.define_function_stmt(current_indent, identifier)
+                    self.define_function_stmt(current_indent, identifier, pos)
                 }
                 else if self.check_type_of_peeked_token(&lexer::TokenType::Equals, "statement")? {
                     self.assignment_stmt(identifier)
@@ -168,7 +170,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
     /// assumed to have already have been consumed.
     ///
     /// `<function> ::= identifier "(" (<param> ("," <param>)*)? ")" ("->" <type>)? <block>`
-    fn define_function_stmt(&mut self, current_indent: usize, identifier: String) -> super::Result<super::Statement> {
+    fn define_function_stmt(&mut self, current_indent: usize, identifier: String, pos: stream::Position) -> super::Result<super::Statement> {
         self.consume_token_of_expected_type(&lexer::TokenType::BracketOpen, "open bracket ( token")?;
 
         let mut parameters = Vec::new();
@@ -191,7 +193,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
         else { None };
 
         Ok(super::Statement::FunctionDefinition {
-            identifier, parameters, return_type,
+            pos, identifier, parameters, return_type,
             body: self.block(current_indent)?
         })
     }
@@ -646,7 +648,7 @@ no_args()
 
         match prsr.next().unwrap() {
             Ok(parsing::Statement::FunctionDefinition {
-                identifier, parameters, body: _,
+                identifier, parameters, body: _, pos: _,
                 return_type: Some(_)
             }) => {
                 assert_eq!(identifier, "some_function".to_string());
@@ -657,7 +659,7 @@ no_args()
 
         match prsr.next().unwrap() {
             Ok(parsing::Statement::FunctionDefinition {
-                identifier, parameters, body: _,
+                identifier, parameters, body: _, pos: _,
                 return_type: None
             }) => {
                 assert_eq!(identifier, "no_args".to_string());
