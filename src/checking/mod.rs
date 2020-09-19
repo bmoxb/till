@@ -8,13 +8,13 @@ use crate::stream;
 use std::fmt;
 
 #[derive(Debug, PartialEq)]
-pub enum Failure { // TODO: Show stream position in error messages.
+pub enum Failure {
     NonexistentPrimitiveType(String),
     VariableNotInScope(stream::Position, String),
     FunctionNotInScope(stream::Position, String, Vec<Type>),
     VoidFunctionInExpr(stream::Position, String, Vec<Type>),
     RedefinedExistingFunction(String, Vec<Type>),
-    VoidFunctionReturnsValue(String, Vec<Type>, Type),
+    VoidFunctionReturnsValue(stream::Position, String, Vec<Type>, Type),
     FunctionUnexpectedReturnType {
         pos: stream::Position,
         identifier: String, params: Vec<Type>,
@@ -30,21 +30,45 @@ pub enum Failure { // TODO: Show stream position in error messages.
 impl fmt::Display for Failure {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Failure::NonexistentPrimitiveType(ident) => write!(f, "The primitive type '{}' does not exist - please use either Num, Char or Bool", ident),
-            Failure::VariableNotInScope(pos, ident) => write!(f, "Reference made at {} to variable '{}' which is either undefined or inaccessible from the current scope", pos, ident),
-            Failure::FunctionNotInScope(pos, ident, params) => write!(f, "Call made at {} to function '{}' with parameter types {:?} which is either undefined or inaccessible from the current scope", pos, ident, params),
-            Failure::VoidFunctionInExpr(pos, ident, params) => write!(f, "Function '{}' with parameter types {:?} has no return value and so cannot be used in an expression at {}", ident, params, pos),
-            Failure::RedefinedExistingFunction(ident, params) => write!(f, "Function '{}' with parameter types {:?} has already been defined", ident, params),
-            Failure::VoidFunctionReturnsValue(ident, params, ret_type) => write!(f, "Function '{}' with parameter types {:?} defined without return type yet has a block that returns a value of type {:?}", ident, params, ret_type),
+            Failure::NonexistentPrimitiveType(ident) =>
+                write!(f, "The primitive type '{}' does not exist - please use either Num, Char or Bool", ident),
+
+            Failure::VariableNotInScope(pos, ident) =>
+                write!(f, "Reference made at {} to variable '{}' which is either undefined or inaccessible from the current scope",
+                       pos, ident),
+
+            Failure::FunctionNotInScope(pos, ident, params) =>
+                write!(f, "Call made at {} to function '{}' with parameter types {:?} which is either undefined or inaccessible from the current scope",
+                       pos, ident, params),
+
+            Failure::VoidFunctionInExpr(pos, ident, params) =>
+                write!(f, "Function '{}' with parameter types {:?} has no return value and so cannot be used in an expression at {}",
+                       ident, params, pos),
+
+            Failure::RedefinedExistingFunction(ident, params) =>
+                write!(f, "Function '{}' with parameter types {:?} has already been defined",
+                       ident, params),
+
+            Failure::VoidFunctionReturnsValue(pos, ident, params, ret_type) =>
+                write!(f, "Function '{}' with parameter types {:?} at {} defined without return type yet has a block that returns a value of type {:?}",
+                       ident, params, pos, ret_type),
+
             Failure::FunctionUnexpectedReturnType { pos, identifier, params, expected, encountered } => {
                 let encountered_as_string = {
                     if let Some(encountered_type) = encountered { format!("{:?}", encountered_type) }
                     else { "nothing".to_string() }
                 };
-                write!(f, "Function '{}' with parameter types {:?} at {} expected to return a value of type {:?} yet found to return {}", identifier, params, pos, expected, encountered_as_string)
+                write!(f, "Function '{}' with parameter types {:?} at {} expected to return a value of type {:?} yet found to return {}",
+                       identifier, params, pos, expected, encountered_as_string)
             }
-            Failure::VariableRedeclaredToDifferentType { identifier, expected, encountered } => write!(f, "Attempt made to redeclare variable '{}' of type {:?} to different type {:?} in the same scope", identifier, expected, encountered),
-            Failure::UnexpectedType { pos, expected, encountered } => write!(f, "Expected type {:?} yet enountered {:?} at {}", expected, encountered, pos)
+
+            Failure::VariableRedeclaredToDifferentType { identifier, expected, encountered } =>
+                write!(f, "Attempt made to redeclare variable '{}' of type {:?} to different type {:?} in the same scope",
+                       identifier, expected, encountered),
+
+            Failure::UnexpectedType { pos, expected, encountered } =>
+                write!(f, "Expected type {:?} yet enountered {:?} at {}",
+                       expected, encountered, pos)
         }
     }
 }

@@ -215,6 +215,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                         // Does function body return something?
                         if let Some(body_return_type) = optional_body_return_type {
                             Err(super::Failure::VoidFunctionReturnsValue(
+                                pos,
                                 identifier, param_types.to_vec(),
                                 body_return_type
                             ))
@@ -796,7 +797,7 @@ mod tests {
             })
         );
 
-        assert_eq!(
+        assert_pattern!(
             chkr.check_stmt(parsing::Statement::FunctionDefinition {
                 identifier: "xyz".to_string(),
                 parameters: vec![],
@@ -809,7 +810,7 @@ mod tests {
                 pos: Position::new()
             }),
             Err(checking::Failure::VoidFunctionReturnsValue(
-                "xyz".to_string(), vec![], checking::Type::Bool
+                _, _, _, checking::Type::Bool
             ))
         );
 
