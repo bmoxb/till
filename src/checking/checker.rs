@@ -54,15 +54,15 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         Ok(self.final_ir)
     }
 
-    /// Check the validity of a given statement. May return a type in the case of
-    /// the statement being a return statement or a while or if statement with a
-    /// block containing a return statement.
-    fn check_stmt(&mut self, stmt: parsing::Statement) -> super::Result<Option<super::Type>> {
+    /// Check the validity of a given statement. May return a type and stream
+    /// position in the case of the statement being a return statement or a
+    /// while or if statement with a block containing a return statement.
+    fn check_stmt(&mut self, stmt: parsing::Statement) -> super::Result<Option<(super::Type, stream::Position)>> {
         match stmt {
             parsing::Statement::Return(Some(expr)) => {
-                let (value, _) = self.check_expr(expr)?;
+                let (ret_type, pos) = self.check_expr(expr)?;
                 self.final_ir.push(super::Instruction::ReturnValue);
-                Ok(Some(value))
+                Ok(Some((ret_type, pos)))
             }
             parsing::Statement::Return(None) => {
                 self.final_ir.push(super::Instruction::ReturnVoid);
@@ -79,23 +79,29 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                 let (block_ret_type, _) = self.check_block(block, vec![])?;
                 self.final_ir.push(super::Instruction::Label(block_end_id));
 
-                self.expect_expr_type(condition, super::Type::Bool)?;
+                let pos = self.expect_expr_type(condition, super::Type::Bool)?;
                 self.final_ir.push(super::Instruction::JumpIfTrue(start_id));
 
-                Ok(block_ret_type)
+                Ok(
+                    if let Some(ret_type) = block_ret_type { Some((ret_type, pos)) }
+                    else { None }
+                )
             }
 
             parsing::Statement::If { condition, block } => {
                 let skip_block_id = self.new_id();
 
-                self.expect_expr_type(condition, super::Type::Bool)?;
+                let pos = self.expect_expr_type(condition, super::Type::Bool)?;
                 self.final_ir.push(super::Instruction::JumpIfFalse(skip_block_id));
 
                 let (block_ret_type, _) = self.check_block(block, vec![])?;
 
                 self.final_ir.push(super::Instruction::Label(skip_block_id));
 
-                Ok(block_ret_type)
+                Ok(
+                    if let Some(ret_type) = block_ret_type { Some((ret_type, pos)) }
+                    else { None }
+                )
             }
 
             parsing::Statement::VariableDeclaration { var_type, identifier, value } => {
@@ -108,7 +114,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                         log::trace!("Redeclaring variable '{}' in same scope", identifier);
 
                         if checking_type != existing_def.var_type {
-                            return Err(super::Failure::RedeclaredToDifferentType {
+                            return Err(super::Failure::VariableRedeclaredToDifferentType {
                                 identifier: identifier.to_string(),
                                 expected: existing_def.var_type.clone(),
                                 encountered: checking_type
@@ -143,6 +149,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
 
                     if var_def.var_type != assign_to_type {
                         return Err(super::Failure::UnexpectedType {
+                            pos: strm_pos,
                             encountered: assign_to_type,
                             expected: var_def.var_type.clone()
                         });
@@ -190,17 +197,18 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                                 Ok(None)
                             }
                             else {
-                                Err(super::Failure::UnexpectedType {
-                                    encountered: body_return_type,
-                                    expected: expected_return_type
+                                Err(super::Failure::FunctionUnexpectedReturnType {
+                                    pos, identifier, params: param_types.to_vec(),
+                                    expected: expected_return_type,
+                                    encountered: Some(body_return_type)
                                 })
                             }
                         }
                         else {
-                            return Err(super::Failure::FunctionDoesNotReturn(
-                                identifier, param_types.to_vec(),
-                                expected_return_type
-                            ));
+                            return Err(super::Failure::FunctionUnexpectedReturnType {
+                                pos, identifier, params: param_types.to_vec(),
+                                expected: expected_return_type, encountered: None
+                            });
                         }
                     } // No return type specified in signature:
                     else {
@@ -248,12 +256,12 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         }
 
         for stmt in block {
-            if let Some(new) = self.check_stmt(stmt)? {
+            if let Some((new, pos)) = self.check_stmt(stmt)? {
                 // Has a return type already been established for this block?
                 if let Some(current) = &ret_type {
                     if new != *current { // Can't have return statements with different types!
                         return Err(super::Failure::UnexpectedType {
-                            expected: current.clone(),
+                            pos, expected: current.clone(),
                             encountered: new
                         })
                     }
@@ -419,6 +427,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                 }
                 else {
                     Err(super::Failure::UnexpectedType {
+                        pos: strm_pos,
                         expected: left_type,
                         encountered: right_type
                     })
@@ -479,7 +488,11 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         let (expr_type, strm_pos) = self.check_expr(expr)?;
         
         if expr_type == expected { Ok(strm_pos) }
-        else { Err(super::Failure::UnexpectedType { expected, encountered: expr_type }) }
+        else {
+            Err(super::Failure::UnexpectedType {
+                pos: strm_pos, expected, encountered: expr_type
+            }) 
+        }
     }
 }
 
@@ -560,14 +573,14 @@ mod tests {
             Ok((checking::Type::Bool, _))
         );
 
-        assert_eq!(
+        assert_pattern!(
             chkr.check_expr(parsing::Expression::Equal(
                 Box::new(parsing::Expression::NumberLiteral { pos: Position::new(), value: 1.5 }),
                 Box::new(parsing::Expression::BooleanLiteral { pos: Position::new(), value: false })
             )),
             Err(checking::Failure::UnexpectedType {
                 encountered: checking::Type::Bool,
-                expected: checking::Type::Num
+                expected: checking::Type::Num, pos: _
             })
         );
 
@@ -579,14 +592,14 @@ mod tests {
             Ok((checking::Type::Bool, _))
         );
 
-        assert_eq!(
+        assert_pattern!(
             chkr.check_expr(parsing::Expression::LessThan(
                 Box::new(parsing::Expression::CharLiteral { pos: Position::new(), value: 'b' }),
                 Box::new(parsing::Expression::CharLiteral { pos: Position::new(), value: 'a' })
             )),
             Err(checking::Failure::UnexpectedType {
                 encountered: checking::Type::Char,
-                expected: checking::Type::Num
+                expected: checking::Type::Num, pos: _
             })
         );
 
@@ -598,14 +611,14 @@ mod tests {
             Ok((checking::Type::Num, _))
         );
 
-        assert_eq!(
+        assert_pattern!(
             chkr.check_expr(parsing::Expression::Divide(
                 Box::new(parsing::Expression::CharLiteral { pos: Position::new(), value: 'x' }),
                 Box::new(parsing::Expression::BooleanLiteral { pos: Position::new(), value: false })
             )),
             Err(checking::Failure::UnexpectedType {
                 encountered: checking::Type::Char,
-                expected: checking::Type::Num
+                expected: checking::Type::Num, pos: _
             })
         );
 
@@ -677,24 +690,24 @@ mod tests {
             Ok(None)
         );
 
-        assert_eq!(
+        assert_pattern!(
             chkr.check_stmt(parsing::Statement::Return(Some(
                 parsing::Expression::Add(
                     Box::new(parsing::Expression::NumberLiteral { pos: Position::new(), value: 1.2 }),
                     Box::new(parsing::Expression::NumberLiteral { pos: Position::new(), value: 2.8 })
                 )
             ))),
-            Ok(Some(checking::Type::Num))
+            Ok(Some((checking::Type::Num, _)))
         );
 
-        assert_eq!(
+        assert_pattern!(
             chkr.check_stmt(parsing::Statement::If {
                 condition: parsing::Expression::BooleanLiteral { pos: Position::new(), value: true },
                 block: vec![
                     parsing::Statement::Return(Some(parsing::Expression::CharLiteral { pos: Position::new(), value: 'x' }))
                 ]
             }),
-            Ok(Some(checking::Type::Char))
+            Ok(Some((checking::Type::Char, _)))
         );
 
         assert_eq!(
@@ -724,14 +737,14 @@ mod tests {
             Ok(None)
         );
 
-        assert_eq!(
+        assert_pattern!(
             chkr.check_stmt(parsing::Statement::VariableAssignment {
                 identifier: "pi".to_string(),
                 assign_to: parsing::Expression::BooleanLiteral { pos: Position::new(), value: true }
             }),
             Err(checking::Failure::UnexpectedType {
                 expected: checking::Type::Num,
-                encountered: checking::Type::Bool
+                encountered: checking::Type::Bool, pos: _
             })
         );
 
@@ -764,7 +777,7 @@ mod tests {
             ))
         );
 
-        assert_eq!(
+        assert_pattern!(
             chkr.check_stmt(parsing::Statement::FunctionDefinition {
                 identifier: "func".to_string(),
                 parameters: vec![
@@ -777,10 +790,10 @@ mod tests {
                 body: vec![],
                 pos: Position::new()
             }),
-            Err(checking::Failure::FunctionDoesNotReturn(
-                "func".to_string(), vec![checking::Type::Char],
-                checking::Type::Num
-            ))
+            Err(checking::Failure::FunctionUnexpectedReturnType {
+                pos: _, identifier: _, params: _,
+                expected: checking::Type::Num, encountered: None
+            })
         );
 
         assert_eq!(
@@ -857,7 +870,7 @@ mod tests {
                 var_type: "Char".to_string(),
                 value: None
             }),
-            Err(checking::Failure::RedeclaredToDifferentType {
+            Err(checking::Failure::VariableRedeclaredToDifferentType {
                 identifier: "x".to_string(),
                 expected: checking::Type::Num,
                 encountered: checking::Type::Char
