@@ -69,6 +69,14 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                 Ok(None)
             }
 
+            parsing::Statement::Display(expr) => {
+                let (value_type, pos) = self.check_expr(expr)?;
+                self.final_ir.push(super::Instruction::Display {
+                    value_type, line_number: pos.line_number
+                });
+                Ok(None)
+            }
+
             parsing::Statement::While { condition, block } => {
                 let block_end_id = self.new_id();
                 self.final_ir.push(super::Instruction::Jump(block_end_id));

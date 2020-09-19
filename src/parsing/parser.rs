@@ -103,7 +103,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
 
     /// Parse a TILL statement.
     ///
-    /// `<stmt> ::= <if> | <while> | <function> | <declaration> | <assignment> | <return>`
+    /// `<stmt> ::= <if> | <while> | <function> | <declaration> | <assignment> | <return> | <display>`
     fn statement(&mut self, current_indent: usize, stmt_type_name: &'static str) -> super::Result<super::Statement> {
         log::trace!("Parsing statement...");
 
@@ -136,6 +136,9 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
 
             // Return:
             lexer::TokenType::ReturnKeyword => self.return_stmt(),
+
+            // Display:
+            lexer::TokenType::DisplayKeyword => self.display_stmt(),
 
             _ => Err(super::Failure::UnexpectedToken(self.consume_token("statement")?, stmt_type_name))
         }
@@ -237,6 +240,15 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
         self.consume_token_of_expected_type(&lexer::TokenType::ReturnKeyword, "return keyword")?;
 
         Ok(super::Statement::Return(self.expression().ok()))
+    }
+
+    /// Display the resulting value of an expression.
+    ///
+    /// `<display> ::= "display" <expr>`
+    fn display_stmt(&mut self) -> super::Result<super::Statement> {
+        self.consume_token_of_expected_type(&lexer::TokenType::DisplayKeyword, "display keyword")?;
+
+        Ok(super::Statement::Display(self.expression()?))
     }
 
     /// `<param> ::= <type> identifier`

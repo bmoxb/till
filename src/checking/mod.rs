@@ -175,6 +175,8 @@ pub enum Instruction {
     /// Return from call without including a value. Also deallocates all variables
     /// since the last begin scope instruction.
     ReturnVoid,
+    /// Pop value off stack and display via stdout.
+    Display { value_type: Type, line_number: u64 },
     /// Jump to a given label.
     Jump(Id),
     /// Pop a value off the stack, if that value is true then jump to the particular

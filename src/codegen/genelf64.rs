@@ -18,8 +18,9 @@ impl GenerateElf64 {
             text_section: vec![
                 Instruction::Comment(format!("Target: {}", Self::TARGET_NAME)),
                 Instruction::Section("text".to_string()),
-                Instruction::Global("_start".to_string()),
-                Instruction::Label("_start".to_string())
+                Instruction::Extern("printf".to_string()),
+                Instruction::Global("main".to_string()),
+                Instruction::Label("main".to_string())
             ],
             bss_section: vec![Instruction::Section("bss".to_string())],
             rodata_section: vec![Instruction::Section("rodata".to_string())],
@@ -133,6 +134,23 @@ impl Generator for GenerateElf64 {
                 self.text_section.extend_from_slice(RETURN_INSTRUCTIONS);
             }
 
+            checking::Instruction::Display { value_type, line_number } => {
+                // TODO: Support Num and Bool as well as Char...
+
+                self.text_section.extend(vec![
+                    // Load format string (first argument):
+                    Instruction::Mov { dest: Oprand::Register(Reg::DestIndex), src: Oprand::Label("display_char".to_string()) },
+                    // Load line number (second argument):
+                    Instruction::Mov { dest: Oprand::Register(Reg::SrcIndex), src: Oprand::Value(Val::Int(line_number as isize)) },
+                    // Load value to be displayed (third argument):
+                    Instruction::Pop(Oprand::Register(Reg::Rdx)),
+                    // Indicate 0 floating-point arguments:
+                    Instruction::Mov { dest: Oprand::Register(Reg::Ax), src: Oprand::Value(Val::Int(0)) },
+                    // Call printf function:
+                    Instruction::Call("printf".to_string())
+                ]);
+            }
+
             checking::Instruction::Jump(id) => { self.text_section.push(Instruction::Jmp(label(id))); }
 
             checking::Instruction::JumpIfTrue(id) => {
@@ -213,10 +231,17 @@ impl Generator for GenerateElf64 {
 
     fn construct_output(mut self) -> String {
         self.text_section.extend(vec![
-            Instruction::Mov { dest: Oprand::Register(Reg::Rax), src: Oprand::Value(Val::Int(60)) },
-            Instruction::Mov { dest: Oprand::Register(Reg::DestIndex), src: Oprand::Value(Val::Int(0)) },
-            Instruction::Syscall
+            // OK status code:
+            Instruction::Mov { dest: Oprand::Register(Reg::Rax), src: Oprand::Value(Val::Int(0)) },
+            // Return from main:
+            Instruction::Ret(0)
         ]);
+
+        self.rodata_section.extend(vec![
+            Instruction::Label("display_char".to_string()),
+            Instruction::DeclareString(r"Line %u display (Char type): %c\n\0".to_string())
+        ]);
+
         self.text_section.extend(self.bss_section.into_iter());
         self.text_section.extend(self.rodata_section.into_iter());
 
@@ -284,9 +309,11 @@ trait AssemblyDisplay {
 enum Instruction {
     Comment(String),
     Section(String),
+    Extern(String),
     Global(String),
     Label(String),
     Declare(Val),
+    DeclareString(String),
     Syscall,
     Mov { dest: Oprand, src: Oprand },
     Add { dest: Oprand, src: Oprand },
@@ -321,9 +348,11 @@ impl AssemblyDisplay for Instruction {
         match self {
             Instruction::Comment(x) => format!("; {}\n", x),
             Instruction::Section(x) => format!("section .{}\n", x),
+            Instruction::Extern(x) => format!("extern {}\n", x),
             Instruction::Global(x) => format!("global {}\n", x),
             Instruction::Label(x) => format!("{}:\n", x),
             Instruction::Declare(x) => format!("dq {}\n", x.intel_syntax()),
+            Instruction::DeclareString(x) => format!("db `{}`\n", x),
             Instruction::Syscall => format!("syscall\n"),
             Instruction::Mov { dest, src } => format!("mov {}, {}\n", dest.intel_syntax(), src.intel_syntax()),
             Instruction::Add { dest, src } => format!("add {}, {}\n", dest.intel_syntax(), src.intel_syntax()),
@@ -389,7 +418,7 @@ impl AssemblyDisplay for Val {
 }
 
 #[derive(Clone)]
-enum Reg { Rax, Ax, Bx, StackPointer, BasePointer, DestIndex }
+enum Reg { Rax, Ax, Bx, Rdx, StackPointer, BasePointer, DestIndex, SrcIndex }
 
 impl AssemblyDisplay for Reg {
     fn intel_syntax(self) -> String {
@@ -397,9 +426,11 @@ impl AssemblyDisplay for Reg {
             Reg::Rax => "rax",
             Reg::Ax => "ax",
             Reg::Bx => "bx",
+            Reg::Rdx => "rdx",
             Reg::StackPointer => "rsp",
             Reg::BasePointer => "rbp",
-            Reg::DestIndex => "rdi"
+            Reg::DestIndex => "rdi",
+            Reg::SrcIndex => "rsi"
         }.to_string()
     }
 }

@@ -42,6 +42,7 @@ pub enum TokenType {
     IfKeyword, // if
     WhileKeyword, // while
     TrueKeyword, // true
+    DisplayKeyword,
 
     BracketOpen, // (
     BracketClose, // )
@@ -186,6 +187,7 @@ lazy_static::lazy_static! {
                         "true" => TokenType::TrueKeyword,
                         "false" => TokenType::FalseKeyword,
                         "return" => TokenType::ReturnKeyword,
+                        "display" => TokenType::DisplayKeyword,
                         x => TokenType::Identifier(x.to_string())
                     }
                 }),

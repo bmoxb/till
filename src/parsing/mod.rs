@@ -63,7 +63,9 @@ pub enum Statement {
         assign_to: Expression
     },
 
-    Return(Option<Expression>)
+    Return(Option<Expression>),
+
+    Display(Expression)
 }
 
 pub type Block = Vec<Statement>;
