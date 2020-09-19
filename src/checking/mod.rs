@@ -11,7 +11,7 @@ use std::fmt;
 pub enum Failure { // TODO: Show stream position in error messages.
     VariableNotInScope(stream::Position, String),
     FunctionNotInScope(stream::Position, String, Vec<Type>),
-    VoidFunctionInExpr(String, Vec<Type>),
+    VoidFunctionInExpr(stream::Position, String, Vec<Type>),
     RedefinedExistingFunction(String, Vec<Type>),
     VoidFunctionReturnsValue(String, Vec<Type>, Type),
     FunctionDoesNotReturn(String, Vec<Type>, Type),
@@ -25,7 +25,7 @@ impl fmt::Display for Failure {
         match self {
             Failure::VariableNotInScope(pos, ident) => write!(f, "Reference made at {} to variable '{}' which is either undefined or inaccessible from the current scope", pos, ident),
             Failure::FunctionNotInScope(pos, ident, params) => write!(f, "Call made at {} to function '{}' with parameter types {:?} which is either undefined or inaccessible from the current scope", pos, ident, params),
-            Failure::VoidFunctionInExpr(ident, params) => write!(f, "Function '{}' with parameter types {:?} has no return value and so cannot be used in an expression", ident, params),
+            Failure::VoidFunctionInExpr(pos, ident, params) => write!(f, "Function '{}' with parameter types {:?} has no return value and so cannot be used in an expression at {}", ident, params, pos),
             Failure::RedefinedExistingFunction(ident, params) => write!(f, "Function '{}' with parameter types {:?} has already been defined", ident, params),
             Failure::VoidFunctionReturnsValue(ident, params, ret_type) => write!(f, "Function '{}' with parameter types {:?} defined without return type yet has a block that returns a value of type {:?}", ident, params, ret_type),
             Failure::FunctionDoesNotReturn(ident, params, ret_type) => write!(f, "Function '{}' with parameter types {:?} expected to return a value of type {:?}", ident, params, ret_type),

@@ -384,7 +384,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
 
                 match option_ret_type {
                     Some(ret_type) => Ok((ret_type.clone(), pos)),
-                    None => Err(super::Failure::VoidFunctionInExpr(ident, arg_types))
+                    None => Err(super::Failure::VoidFunctionInExpr(pos, ident, arg_types))
                 }
             }
 
@@ -656,7 +656,7 @@ mod tests {
 
         chkr.introduce_function("abc".to_string(), vec![checking::Type::Char], None, 1);
 
-        assert_eq!(
+        assert_pattern!(
             chkr.check_expr(parsing::Expression::FunctionCall {
                 pos: Position::new(),
                 identifier: "abc".to_string(),
@@ -664,7 +664,7 @@ mod tests {
                     parsing::Expression::CharLiteral { pos: Position::new(), value: 'x' }
                 ]
             }),
-            Err(checking::Failure::VoidFunctionInExpr("abc".to_string(), vec![checking::Type::Char]))
+            Err(checking::Failure::VoidFunctionInExpr(_, _, _))
         );
     }
 
