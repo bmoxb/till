@@ -1,4 +1,5 @@
-Num x = 5
+Num x = 10
 
-while x == 5
-	x = 6
+while x > ~1
+	display x
+	x = x - 1

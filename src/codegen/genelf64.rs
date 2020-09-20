@@ -199,12 +199,12 @@ impl Generator for GenerateElf64 {
                         dest: Oprand::Register(Reg::Rax),
                         src: Oprand::Address(Box::new(Oprand::Register(Reg::StackPointer)))
                     },
-                    // Push the 16-bit flags register onto the stack:
+                    // Push flags register onto the stack:
                     Instruction::PushFlags,
-                    // Pop the flags register into the lower two bytes of rax register:
-                    Instruction::Pop(Oprand::Register(Reg::Ax)),
+                    // Pop the flags register into rax:
+                    Instruction::Pop(Oprand::Register(Reg::Rax)),
                     // Extract the value of the zero flag:
-                    Instruction::Shr { dest: Oprand::Register(Reg::Ax), shift_by: 6 },
+                    Instruction::Shr { dest: Oprand::Register(Reg::Rax), shift_by: 6 },
                     Instruction::BitwiseAnd { dest: Oprand::Register(Reg::Rax), src: Oprand::Value(Val::Int(1)) },
                     // Place the value of the zero flag onto the stack:
                     Instruction::Mov {
@@ -258,6 +258,8 @@ impl Generator for GenerateElf64 {
         self.text_section.extend(vec![
             // OK status code:
             Instruction::Mov { dest: Oprand::Register(Reg::Rax), src: Oprand::Value(Val::Int(0)) },
+            // ...
+            Instruction::Pop(Oprand::Register(Reg::BasePointer)),
             // Return from main:
             Instruction::Ret(0)
         ]);
@@ -407,7 +409,7 @@ impl AssemblyDisplay for Instruction {
             Instruction::BitwiseAnd { dest, src } => format!("and qword {}, {}\n", dest.intel_syntax(), src.intel_syntax()),
             Instruction::BitwiseOr { dest, src } => format!("or qword {}, {}\n", dest.intel_syntax(), src.intel_syntax()),
             Instruction::BitwiseNot(x) => format!("not qword {}\n", x.intel_syntax()),
-            Instruction::PushFlags => "pushf\n".to_string(),
+            Instruction::PushFlags => "pushfq\n".to_string(),
             Instruction::Cmp { dest, src } => format!("cmp {}, {}\n", dest.intel_syntax(), src.intel_syntax()),
             Instruction::Je(x) => format!("je {}\n", x),
             Instruction::Jne(x) => format!("jne {}\n", x)
