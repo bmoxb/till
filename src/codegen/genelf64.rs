@@ -20,7 +20,12 @@ impl GenerateElf64 {
                 Instruction::Section("text".to_string()),
                 Instruction::Extern("printf".to_string()),
                 Instruction::Global("main".to_string()),
-                Instruction::Label("main".to_string())
+                Instruction::Label("main".to_string()),
+                Instruction::Push(Oprand::Register(Reg::BasePointer)),
+                Instruction::Mov {
+                    dest: Oprand::Register(Reg::BasePointer),
+                    src: Oprand::Register(Reg::StackPointer)
+                }
             ],
             bss_section: vec![Instruction::Section("bss".to_string())],
             rodata_section: vec![Instruction::Section("rodata".to_string())],
@@ -135,17 +140,37 @@ impl Generator for GenerateElf64 {
             }
 
             checking::Instruction::Display { value_type, line_number } => {
-                // TODO: Support Num and Bool as well as Char...
+                let (format_label, float_args_count) = match value_type {
+                    checking::Type::Char => {
+                        // Pop character from stack into rdx (third argument):
+                        self.text_section.push(Instruction::Pop(Oprand::Register(Reg::Rdx)));
+                        ("display_char", 0)
+                    }
+                    checking::Type::Bool => {
+                        // Pop bool from stack into rdx (third argument):
+                        self.text_section.push(Instruction::Pop(Oprand::Register(Reg::Rdx)));
+                        ("display_bool", 0)
+                    }
+                    checking::Type::Num => {
+                        // Pop and store float in xmm0 register (first floating-point argument):
+                        self.text_section.extend(vec![
+                            Instruction::Pop(Oprand::Register(Reg::Rax)),
+                            Instruction::Movq {
+                                dest: Oprand::Register(Reg::Xmm0),
+                                src: Oprand::Register(Reg::Rax)
+                            }
+                        ]);
+                        ("display_num", 1)
+                    }
+                };
 
                 self.text_section.extend(vec![
                     // Load format string (first argument):
-                    Instruction::Mov { dest: Oprand::Register(Reg::DestIndex), src: Oprand::Label("display_char".to_string()) },
+                    Instruction::Mov { dest: Oprand::Register(Reg::DestIndex), src: Oprand::Label(format_label.to_string()) },
                     // Load line number (second argument):
                     Instruction::Mov { dest: Oprand::Register(Reg::SrcIndex), src: Oprand::Value(Val::Int(line_number as isize)) },
-                    // Load value to be displayed (third argument):
-                    Instruction::Pop(Oprand::Register(Reg::Rdx)),
-                    // Indicate 0 floating-point arguments:
-                    Instruction::Mov { dest: Oprand::Register(Reg::Ax), src: Oprand::Value(Val::Int(0)) },
+                    // Indicate number of floating-point arguments:
+                    Instruction::Mov { dest: Oprand::Register(Reg::Rax), src: Oprand::Value(Val::Int(float_args_count)) },
                     // Call printf function:
                     Instruction::Call("printf".to_string())
                 ]);
@@ -239,7 +264,13 @@ impl Generator for GenerateElf64 {
 
         self.rodata_section.extend(vec![
             Instruction::Label("display_char".to_string()),
-            Instruction::DeclareString(r"Line %u display (Char type): %c\n\0".to_string())
+            Instruction::DeclareString(r"Line %u character value: '%c'\n\0".to_string()),
+
+            Instruction::Label("display_bool".to_string()),
+            Instruction::DeclareString(r"Line %u boolean value: %lld\n\0".to_string()),
+
+            Instruction::Label("display_num".to_string()),
+            Instruction::DeclareString(r"Line %u number value: %f\n\0".to_string())
         ]);
 
         self.text_section.extend(self.bss_section.into_iter());
@@ -314,8 +345,8 @@ enum Instruction {
     Label(String),
     Declare(Val),
     DeclareString(String),
-    Syscall,
     Mov { dest: Oprand, src: Oprand },
+    Movq { dest: Oprand, src: Oprand },
     Add { dest: Oprand, src: Oprand },
     Sub { dest: Oprand, src: Oprand },
     Push(Oprand),
@@ -353,8 +384,8 @@ impl AssemblyDisplay for Instruction {
             Instruction::Label(x) => format!("{}:\n", x),
             Instruction::Declare(x) => format!("dq {}\n", x.intel_syntax()),
             Instruction::DeclareString(x) => format!("db `{}`\n", x),
-            Instruction::Syscall => format!("syscall\n"),
             Instruction::Mov { dest, src } => format!("mov {}, {}\n", dest.intel_syntax(), src.intel_syntax()),
+            Instruction::Movq { dest, src } => format!("movq {}, {}\n", dest.intel_syntax(), src.intel_syntax()),
             Instruction::Add { dest, src } => format!("add {}, {}\n", dest.intel_syntax(), src.intel_syntax()),
             Instruction::Sub { dest, src } => format!("sub {}, {}\n", dest.intel_syntax(), src.intel_syntax()),
             Instruction::Push(x) => format!("push qword {}\n", x.intel_syntax()),
@@ -418,7 +449,7 @@ impl AssemblyDisplay for Val {
 }
 
 #[derive(Clone)]
-enum Reg { Rax, Ax, Bx, Rdx, StackPointer, BasePointer, DestIndex, SrcIndex }
+enum Reg { Rax, Ax, Bx, Rdx, StackPointer, BasePointer, DestIndex, SrcIndex, Xmm0 }
 
 impl AssemblyDisplay for Reg {
     fn intel_syntax(self) -> String {
@@ -430,7 +461,8 @@ impl AssemblyDisplay for Reg {
             Reg::StackPointer => "rsp",
             Reg::BasePointer => "rbp",
             Reg::DestIndex => "rdi",
-            Reg::SrcIndex => "rsi"
+            Reg::SrcIndex => "rsi",
+            Reg::Xmm0 => "xmm0"
         }.to_string()
     }
 }
