@@ -1,3 +1,6 @@
+//! Contains code for generating assembly code based upon a till program final
+//! immediate representation.
+
 pub mod genelf64;
 
 use crate::checking;

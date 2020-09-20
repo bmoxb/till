@@ -4,7 +4,10 @@
 //! [See on GitHub](https://github.com/WiredSound/till)
 
 #![macro_use]
+
+/// Debugging macro for checking whether an expression matches a given pattern.
 #[macro_export]
+#[cfg(debug_assertions)]
 macro_rules! assert_pattern {
     ($x:expr, $y:pat) => {
         match $x { $y => {}, _ => panic!() }
@@ -68,6 +71,8 @@ fn read_compile_write(relative_in: &str, relative_out: &str) {
     }
 }
 
+/// Read input from stdin until EOF encountered and then compile that input as
+/// till code.
 fn interactive() {
     println!("Please type your code and then press Ctrl-D to compile...");
 
@@ -82,6 +87,8 @@ fn interactive() {
     }
 }
 
+/// Perform lexical, syntactic, and semantic analysis on the till code from a
+/// given input stream and then generate elf64 Intel-syntax assembly code.
 fn compile(strm: Stream) -> String {
     let tokens = lexing::lexer::input(strm).filter_map(|x| display_any_failures(x, "lexical"));
     let syntax_tree = parsing::parser::input(tokens).filter_map(|x| display_any_failures(x, "syntax"));
@@ -89,6 +96,7 @@ fn compile(strm: Stream) -> String {
     codegen::genelf64::input(final_ir)
 }
 
+/// Helper function that displays any errors and exits should one be encountered.
 fn display_any_failures<T, E: fmt::Display>(value: Result<T, E>, compilation_stage: &str) -> Option<T> {
     if let Err(e) = &value {
         println!("{} ERROR: {}", compilation_stage.to_ascii_uppercase(), e);
@@ -97,6 +105,7 @@ fn display_any_failures<T, E: fmt::Display>(value: Result<T, E>, compilation_sta
     value.ok()
 }
 
+/// Display a given file input/output error.
 fn display_file_error<T: fmt::Display>(e: std::io::Error, path: T) {
     match e.kind() {
         io::ErrorKind::NotFound => println!("File not found at: {}", path),
