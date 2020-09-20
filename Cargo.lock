@@ -144,7 +144,7 @@ dependencies = [
 
 [[package]]
 name = "till"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "char_stream",
  "lazy_static",
