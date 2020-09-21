@@ -9,7 +9,16 @@
 * Expressions with proper operator precedence
 * Function overloading
 * Recursive-descent parser
-* OS-independent x86_64 Intel-syntax assembly output
+* OS-independent x86_64 Intel-syntax assembly output (buggy)
+
+## Known Issues
+
+* **The code generator is poorly implemented** and should ideally be rewritten:
+  * Storing function parameters in the .data section is both inefficient and causes numerous issues (e.g. overwriting of values still in use).
+  * Recursive functions do not work and will not work until the above point is addressed.
+  * All values are stored as 64-bits regardless of type (especially wasteful in the case of Boolean values).
+* The checker is unable to determine whether a function body will always return provided it contains at least one `return` statement.
+* The checker allows for the use of uninitialised variables.
 
 ## Usage
 
@@ -21,7 +30,7 @@
 
 ## Language
 
-* The till language is rather primitive and would not be useful in any real-world situations - this project is for learning purposes only.
+* The till language is rather primitive and would not be useful in any real-world situations - **this project is for learning purposes only.**
 
 ### Types
 
