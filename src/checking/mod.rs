@@ -11,7 +11,7 @@ use std::fmt;
 pub enum Failure {
     NonexistentPrimitiveType(String),
     VariableNotInScope(stream::Position, String),
-    FunctionNotInScope(stream::Position, String, Vec<Type>),
+    FunctionUndefined(stream::Position, String, Vec<Type>),
     VoidFunctionInExpr(stream::Position, String, Vec<Type>),
     RedefinedExistingFunction(String, Vec<Type>),
     VoidFunctionReturnsValue(stream::Position, String, Vec<Type>, Type),
@@ -24,7 +24,7 @@ pub enum Failure {
         identifier: String,
         expected: Type, encountered: Type
     },
-    UnexpectedType { pos: stream::Position, expected: Type, encountered: Type },
+    UnexpectedType { pos: stream::Position, expected: Type, encountered: Type }
 }
 
 impl fmt::Display for Failure {
@@ -37,8 +37,8 @@ impl fmt::Display for Failure {
                 write!(f, "Reference made at {} to variable '{}' which is either undefined or inaccessible from the current scope",
                        pos, ident),
 
-            Failure::FunctionNotInScope(pos, ident, params) =>
-                write!(f, "Call made at {} to function '{}' with parameter types {:?} which is either undefined or inaccessible from the current scope",
+            Failure::FunctionUndefined(pos, ident, params) =>
+                write!(f, "Call made at {} to function '{}' with parameter types {:?} which is not yet defined",
                        pos, ident, params),
 
             Failure::VoidFunctionInExpr(pos, ident, params) =>
@@ -80,7 +80,7 @@ type Result<T> = std::result::Result<T, Failure>;
 pub enum Type { Char, Num, Bool }
 
 impl Type {
-    fn from_parsing_type(ident: &str) -> Result<Type> {
+    fn from_identifier(ident: &str) -> Result<Type> {
         match ident {
             "Char" => Ok(Type::Char),
             "Num" => Ok(Type::Num),
@@ -92,39 +92,28 @@ impl Type {
 
 /// Represents a scope within a till program. A new scope is created in the body
 /// of a function definition, if statement, or while statement. Any variables
-/// or functions declared in a given scope will only be accessible from within
-/// that scope or from a scope nested in it.
+/// declared in a given scope will only be accessible from within that scope or
+/// from a scope nested in it.
 #[derive(Debug)]
-struct Scope {
-    variable_defs: Vec<VariableDef>,
-    function_defs: Vec<FunctionDef>
-}
+struct Scope { variables: Vec<VariableDef> }
 
 impl Scope {
     fn find_variable_def(&self, ident: &str) -> Option<&VariableDef> {
-        for def in &self.variable_defs {
+        for def in &self.variables {
             if def.identifier == ident { return Some(def) }
         }
         None
     }
-
-    fn find_function_def(&self, ident: &str, params: &[Type]) -> Option<&FunctionDef> {
-        for def in &self.function_defs {
-            if def.identifier == ident && def.parameter_types.as_slice() == params {
-                return Some(def)
-            }
-        }
-        None
-    }
 }
 
-pub type Id = usize;
+pub type Id = usize; // TODO: Unnecessary alias.
 
 /// Definition of a variable with a given identifier and type.
 #[derive(Debug, PartialEq)]
 struct VariableDef {
     identifier: String,
     var_type: Type,
+    initialised: bool,
     id: Id
 }
 
@@ -151,14 +140,16 @@ pub enum Value {
 /// immediate representation of a till program.
 #[derive(Debug)]
 pub enum Instruction {
-    /// Allocate space for the storage of a variable with a given ID.
-    Allocate(Id),
+    /// Create a global variable with a given ID.
+    Global(Id),
+    /// Create a function parameter with a given ID.
+    Parameter(Id),
+    /// Create a variable local to the current function with a given ID.
+    Local(Id),
     /// Push the specified value onto the stack.
     Push(Value),
     /// Pop a value off the stack and store it in the specified variable.
     Store(Id),
-    /// Store a function argument in a parameter variable.
-    Parameter { store_in: Id, param_number: usize },
     /// Identify a point in the series of instructions that can be jumped to (e.g.
     /// the beginning of a function or loop).
     Label(Id),

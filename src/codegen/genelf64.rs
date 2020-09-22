@@ -49,13 +49,6 @@ impl Generator for GenerateElf64 {
 
     fn handle_instruction(&mut self, instruction: checking::Instruction) {
         match instruction {
-            checking::Instruction::Allocate(id) => {
-                self.bss_section.extend(vec![
-                    Instruction::Label(var_label(id)),
-                    Instruction::Reserve
-                ]);
-            }
-
             checking::Instruction::Push(val) => {
                 let oprand = match val {
                     checking::Value::Num(num_val) => {
@@ -92,8 +85,9 @@ impl Generator for GenerateElf64 {
                 ));
             }
 
-            checking::Instruction::Parameter { store_in, param_number } => {
-                // Store function argument in parameter variable:
+            checking::Instruction::Parameter(id) => {
+                unimplemented!(); // TODO
+                /* Store function argument in parameter variable:
                 self.text_section.extend(vec![
                     Instruction::Mov {
                         dest: Oprand::Register(Reg::Rax),
@@ -103,8 +97,12 @@ impl Generator for GenerateElf64 {
                         dest: Oprand::Address(Box::new(Oprand::Label(var_label(store_in)))),
                         src: Oprand::Register(Reg::Rax)
                     }
-                ]);
+                ]);*/
             }
+
+            checking::Instruction::Local(id) => { unimplemented!() }
+
+            checking::Instruction::Global(id) => { unimplemented!() }
 
             checking::Instruction::Label(id) => { self.text_section.push(Instruction::Label(label(id))); }
 
