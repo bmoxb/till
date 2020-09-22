@@ -73,7 +73,7 @@ impl fmt::Display for Failure {
                        expected, encountered, pos),
             
             Failure::InvalidTopLevelStatement =>
-                write!(f, "Only function and global definition statements are allowed at the top-level"),
+                write!(f, "Only global variable and function definition statements are allowed at the top-level"),
 
             Failure::NestedFunctions(pos, ident) =>
                 write!(f, "Function '{}' at {} cannot be defined as it is contained within the body of another function", ident, pos)
@@ -152,12 +152,12 @@ pub enum Instruction {
     Global(Id),
     /// Create a function parameter with a given ID.
     Parameter(Id),
-    /// Create a variable local to the current function with a given ID.
+    /// Reserve stack space for a local variable with a given ID.
     Local(Id),
-    /// Push the specified value onto the stack.
-    Push(Value),
     /// Pop a value off the stack and store it in the specified variable.
     Store(Id),
+    /// Push the specified value onto the stack.
+    Push(Value),
     /// Identify a point in the series of instructions that can be jumped to (e.g.
     /// the beginning of a function or loop).
     Label(Id),

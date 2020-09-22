@@ -1,5 +1,6 @@
 use crate::checking;
 use super::Generator;
+use std::collections::HashMap;
 
 pub fn input(instructions: Vec<checking::Instruction>) -> String {
     GenerateElf64::new().execute(instructions)
@@ -9,6 +10,7 @@ struct GenerateElf64 {
     text_section: Vec<Instruction>,
     bss_section: Vec<Instruction>,
     rodata_section: Vec<Instruction>,
+    variable_locations: HashMap<checking::Id, Oprand>,
     num_label_counter: usize
 }
 
@@ -29,6 +31,7 @@ impl GenerateElf64 {
             ],
             bss_section: vec![Instruction::Section("bss".to_string())],
             rodata_section: vec![Instruction::Section("rodata".to_string())],
+            variable_locations: HashMap::new(),
             num_label_counter: 0
         }
     }
@@ -100,13 +103,20 @@ impl Generator for GenerateElf64 {
                 ]);*/
             }
 
-            checking::Instruction::Local(id) => { unimplemented!() }
+            checking::Instruction::Local(id) => {
+                unimplemented!()
+            }
 
-            checking::Instruction::Global(id) => { unimplemented!() }
+            checking::Instruction::Global(id) => {
+                // TODO: Store in data section...
+                unimplemented!()
+            }
 
             checking::Instruction::Label(id) => { self.text_section.push(Instruction::Label(label(id))); }
 
             checking::Instruction::Function(id) => { 
+                // TODO: Count number of local variables and set aside stack space accordingly.
+
                 self.text_section.extend(vec![
                     Instruction::Label(func_label(id)),
                     // Preserve the base pointer of the previous frame:
@@ -253,15 +263,6 @@ impl Generator for GenerateElf64 {
     }
 
     fn construct_output(mut self) -> String {
-        self.text_section.extend(vec![
-            // OK status code:
-            Instruction::Mov { dest: Oprand::Register(Reg::Rax), src: Oprand::Value(Val::Int(0)) },
-            // ...
-            Instruction::Pop(Oprand::Register(Reg::BasePointer)),
-            // Return from main:
-            Instruction::Ret(0)
-        ]);
-
         self.rodata_section.extend(vec![
             Instruction::Label("display_char".to_string()),
             Instruction::DeclareString(r"Line %u character value: '%c'\n\0".to_string()),
@@ -360,7 +361,6 @@ enum Instruction {
     FpuSubtract,
     FpuMultiply,
     FpuDivide,
-    Reserve,
     Ret(usize),
     Call(String),
     Jmp(String),
@@ -399,7 +399,6 @@ impl AssemblyDisplay for Instruction {
             Instruction::FpuSubtract => "fsub\n".to_string(),
             Instruction::FpuMultiply => "fmul\n".to_string(),
             Instruction::FpuDivide => "fdiv\n".to_string(),
-            Instruction::Reserve => "resq 1\n".to_string(),
             Instruction::Ret(x) => format!("ret {}\n", x),
             Instruction::Call(x) => format!("call {}\n", x),
             Instruction::Jmp(x) => format!("jmp {}\n", x),

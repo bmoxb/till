@@ -24,7 +24,9 @@ pub struct Checker<T: Iterator<Item=parsing::Statement>> {
     /// representation of the input program.
     final_ir: Vec<super::Instruction>,
     /// Counter for creating unique IDs.
-    id_counter: super::Id
+    id_counter: super::Id,
+    /// IDs of local variables that are no longer used (i.e. went out of scope).
+    available_local_variable_ids: Vec<super::Id>
 }
 
 impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
@@ -35,7 +37,8 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
             functions: Vec::new(),
             scopes: Vec::new(),
             final_ir: Vec::new(),
-            id_counter: 0
+            id_counter: 0,
+            available_local_variable_ids: Vec::new()
         }
     }
 
@@ -294,9 +297,15 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         self.scopes.push(super::Scope { variables: Vec::new() });
     }
 
-    /// Remove the inner-most scope from the scopes stack.
+    /// Remove the inner-most scope from the scopes stack and deallocate all the
+    /// variables from said scope.
     fn end_scope(&mut self) {
-        self.scopes.pop();
+        if let Some(previous_scope) = self.scopes.pop() {
+            for def in previous_scope.variables {
+                self.available_local_variable_ids.push(def.id);
+                //self.final_ir.push(super::Instruction::Free(def.id));
+            }
+        }
     }
 
     /// Get a mutable reference to the current inner-most scope. Will panic if
@@ -336,7 +345,10 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
     }
 
     fn add_variable_def_to_inner_scope(&mut self, identifier: String, var_type: super::Type, initialised: bool) -> super::Id {
-        let id = self.new_id();
+        let id = {
+            if let Some(available_id) = self.available_local_variable_ids.pop() { available_id }
+            else { self.new_id() }
+        };
         
         self.get_inner_scope().variables.push(super::VariableDef {
             identifier, var_type, initialised, id
