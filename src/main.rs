@@ -10,7 +10,7 @@
 #[cfg(debug_assertions)]
 macro_rules! assert_pattern {
     ($x:expr, $y:pat) => {
-        match $x { $y => {}, _ => panic!() }
+        match $x { $y => {}, _ => panic!("{:?}", $x) }
     };
 }
 

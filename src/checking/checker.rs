@@ -122,7 +122,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                 unimplemented!() // TODO: Globals...
             }
 
-            _ => panic!()//Err(super::Failure::InvalidTopLevelStatement())
+            _ => Err(super::Failure::InvalidTopLevelStatement)
         }
     }
 
@@ -249,9 +249,8 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                 Ok(None)
             }
 
-            parsing::Statement::FunctionDefinition { pos, identifier, parameters, return_type, body } =>
-                panic!()
-                //TODO Err(super::Failure::NestedFunction())
+            parsing::Statement::FunctionDefinition { pos, identifier, parameters: _, return_type: _, body: _ } =>
+                Err(super::Failure::NestedFunctions(pos, identifier))
         }
     }
 
@@ -671,7 +670,7 @@ mod tests {
     }
 
     #[test]
-    fn eval_inner_stmts() -> checking::Result<()> {
+    fn eval_inner_stmts() {
         let mut chkr = new_empty_checker();
 
         assert_eq!(
@@ -737,20 +736,36 @@ mod tests {
             })
         );
 
-        assert_eq!(
+        assert_pattern!(
             chkr.eval_inner_stmt(parsing::Statement::FunctionDefinition {
+                identifier: "nested".to_string(),
+                parameters: vec![],
+                return_type: None,
+                body: vec![],
+                pos: Position::new()
+            }),
+            Err(checking::Failure::NestedFunctions(_, _))
+        );
+    }
+
+    #[test]
+    fn eval_top_level_stmts() -> checking::Result<()> {
+        let mut chkr = new_empty_checker();
+
+        assert_eq!(
+            chkr.eval_top_level_stmt(parsing::Statement::FunctionDefinition {
                 identifier: "func".to_string(),
                 parameters: vec![],
                 return_type: None,
                 body: vec![],
                 pos: Position::new()
             }),
-            Ok(None)
+            Ok(())
         );
         assert!(chkr.function_lookup("func", &[], &Position::new())?.return_type.is_none());
 
         assert_eq!(
-            chkr.eval_inner_stmt(parsing::Statement::FunctionDefinition {
+            chkr.eval_top_level_stmt(parsing::Statement::FunctionDefinition {
                 identifier: "func".to_string(),
                 parameters: vec![],
                 return_type: Some("Num".to_string()),
@@ -767,7 +782,7 @@ mod tests {
         );
 
         assert_pattern!(
-            chkr.eval_inner_stmt(parsing::Statement::FunctionDefinition {
+            chkr.eval_top_level_stmt(parsing::Statement::FunctionDefinition {
                 identifier: "func".to_string(),
                 parameters: vec![
                     parsing::Parameter {
@@ -786,7 +801,7 @@ mod tests {
         );
 
         assert_pattern!(
-            chkr.eval_inner_stmt(parsing::Statement::FunctionDefinition {
+            chkr.eval_top_level_stmt(parsing::Statement::FunctionDefinition {
                 identifier: "xyz".to_string(),
                 parameters: vec![],
                 return_type: None,
@@ -803,7 +818,7 @@ mod tests {
         );
 
         assert_eq!(
-            chkr.eval_inner_stmt(parsing::Statement::FunctionDefinition {
+            chkr.eval_top_level_stmt(parsing::Statement::FunctionDefinition {
                 identifier: "useless_function".to_string(),
                 parameters: vec![
                     parsing::Parameter {
@@ -819,7 +834,7 @@ mod tests {
                 ],
                 pos: Position::new()
             }),
-            Ok(None)
+            Ok(())
         );
 
         Ok(())

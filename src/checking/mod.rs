@@ -24,7 +24,9 @@ pub enum Failure {
         identifier: String,
         expected: Type, encountered: Type
     },
-    UnexpectedType { pos: stream::Position, expected: Type, encountered: Type }
+    UnexpectedType { pos: stream::Position, expected: Type, encountered: Type },
+    InvalidTopLevelStatement,
+    NestedFunctions(stream::Position, String)
 }
 
 impl fmt::Display for Failure {
@@ -68,7 +70,13 @@ impl fmt::Display for Failure {
 
             Failure::UnexpectedType { pos, expected, encountered } =>
                 write!(f, "Expected type {:?} yet enountered {:?} at {}",
-                       expected, encountered, pos)
+                       expected, encountered, pos),
+            
+            Failure::InvalidTopLevelStatement =>
+                write!(f, "Only function and global definition statements are allowed at the top-level"),
+
+            Failure::NestedFunctions(pos, ident) =>
+                write!(f, "Function '{}' at {} cannot be defined as it is contained within the body of another function", ident, pos)
         }
     }
 }
