@@ -14,15 +14,12 @@ pub struct Checker<T: Iterator<Item=parsing::Statement>> {
     /// Iterator of statements to be checked.
     stmts: T,
     /// Contains all variables declared outside of any function.
-    global_variables: HashMap<super::Id, super::VariableDef>,
+    // TODO global_variables: HashMap<super::Id, super::VariableDef>,
     /// Contains all function definitions.
     functions: Vec<super::FunctionDef>,
     /// The scope stack. The scope at the end of this vector is the inner most
     /// scope at a given point.
     scopes: Vec<super::Scope>,
-    /// Holds the primitive instructions that will make up the final immediate
-    /// representation of the input program.
-    final_ir: Vec<super::Instruction>,
     /// Counter for creating unique IDs.
     id_counter: super::Id,
     /// IDs of local variables that are no longer used (i.e. went out of scope).
@@ -33,10 +30,9 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
     fn new(stmts: T) -> Self {
         Checker {
             stmts,
-            global_variables: HashMap::new(),
+            //global_variables: HashMap::new(),
             functions: Vec::new(),
             scopes: Vec::new(),
-            final_ir: Vec::new(),
             id_counter: 0,
             available_local_variable_ids: Vec::new()
         }
@@ -46,24 +42,28 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
     /// representation of the input program. This will consume the `Checker`
     /// instance.
     fn execute(mut self) -> super::Result<Vec<super::Instruction>> {
+        // Holds the primitive instructions that will make up the final immediate
+        // representation of the input program.
+        let mut final_ir = Vec::new();
+
         // Evaluate top-level statements:
         while let Some(stmt) = self.stmts.next() {
-            self.eval_top_level_stmt(stmt)?;
+            let new_instructions = self.eval_top_level_stmt(stmt)?;
+            final_ir.extend(new_instructions);
         }
 
         assert!(self.scopes.is_empty());
 
-        Ok(self.final_ir)
+        Ok(final_ir)
     }
 
-    /// Ensure the validity and evaluate a top-level statement (function
-    /// definition expected).
-    fn eval_top_level_stmt(&mut self, stmt: parsing::Statement) -> super::Result<()> {
+    /// Ensure the validity and evaluate a top-level statement (function or global
+    /// variable definitions expected).
+    fn eval_top_level_stmt(&mut self, stmt: parsing::Statement) -> super::Result<Vec<super::Instruction>> {
         match stmt {
             parsing::Statement::FunctionDefinition { pos, identifier, parameters, return_type, body } => {
-                // Add the function instruction before the function body:
+                // Create a new ID for this function:
                 let id = self.new_id();
-                self.final_ir.push(super::Instruction::Function(id));
 
                 // Check the declared return type is actually a real type:
                 let checked_return_type = return_type.map(|x| super::Type::from_identifier(&x)).transpose()?;
@@ -85,7 +85,10 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                 }
 
                 // Evaluate the function body:
-                let optional_body_return_type = self.eval_block(body, checked_parameters)?;
+                let (body_instructions, local_variable_count, optional_body_return_type) = self.eval_block(body, checked_parameters)?;
+
+                let mut instructions = vec![super::Instruction::Function { id, local_variable_count }];
+                instructions.extend(body_instructions);
 
                 // Return type specified in function signature:
                 if let Some(expected_return_type) = checked_return_type {
@@ -93,7 +96,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                     // has been specified in the signature:
                     if let Some(body_return_type) = optional_body_return_type {
                         // Are those types the same?
-                        if body_return_type == expected_return_type { Ok(()) }
+                        if body_return_type == expected_return_type { Ok(instructions) }
                         else {
                             Err(super::Failure::FunctionUnexpectedReturnType {
                                 pos, identifier, params: param_types.to_vec(),
@@ -101,7 +104,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                                 encountered: Some(body_return_type)
                             })
                         }
-                    }
+                    } // Function body doesn't return anything:
                     else {
                         return Err(super::Failure::FunctionUnexpectedReturnType {
                             pos, identifier, params: param_types.to_vec(),
@@ -117,79 +120,94 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                             body_return_type
                         ))
                     }
-                    else { Ok(()) }
+                    else {
+                        // Ensure function has final return statement:
+                        if instructions.last() != Some(&super::Instruction::ReturnVoid) {
+                            instructions.push(super::Instruction::ReturnVoid);
+                        }
+
+                        Ok(instructions)
+                    }
                 }
             }
 
-            parsing::Statement::VariableDeclaration {var_type, identifier, value } => {
+            /*parsing::Statement::VariableDeclaration {var_type, identifier, value } => {
                 unimplemented!() // TODO: Globals...
-            }
+            }*/
 
             _ => Err(super::Failure::InvalidTopLevelStatement)
         }
     }
 
-    /// Check the validity of a given statement within a function. May return a
-    /// type and stream  position in the case of the statement being a return
-    /// statement or a while or if statement with a block containing a return
-    /// statement.
-    fn eval_inner_stmt(&mut self, stmt: parsing::Statement) -> super::Result<Option<(super::Type, stream::Position)>> {
+    /// Check the validity of a given statement within a function. Returns a
+    /// `Result` containing a tuple. The first item in this tuple will be a
+    /// vector containing final IR instructions. The second item will be the
+    /// number of local variables declared by the given statement. The final
+    /// item in the tuple will ve a return type and stream position should
+    /// the statement be a return statement or an if or while statement with a
+    /// block containing a return statement.
+    fn eval_inner_stmt(&mut self, stmt: parsing::Statement) -> super::Result<(Vec<super::Instruction>, usize, Option<(super::Type, stream::Position)>)> {
         match stmt {
             parsing::Statement::Return(Some(expr)) => {
-                let (ret_type, pos) = self.eval_expr(expr)?;
-                self.final_ir.push(super::Instruction::ReturnValue);
-                Ok(Some((ret_type, pos)))
+                let (mut instructions, ret_type, pos) = self.eval_expr(expr)?;
+                instructions.push(super::Instruction::ReturnValue);
+                Ok((instructions, 0, Some((ret_type, pos))))
             }
-            parsing::Statement::Return(None) => {
-                self.final_ir.push(super::Instruction::ReturnVoid);
-                Ok(None)
-            }
+            parsing::Statement::Return(None) =>
+                Ok((vec![super::Instruction::ReturnVoid], 0, None)),
 
             parsing::Statement::Display(expr) => {
-                let (value_type, pos) = self.eval_expr(expr)?;
-                self.final_ir.push(super::Instruction::Display {
+                let (mut instructions, value_type, pos) = self.eval_expr(expr)?;
+                instructions.push(super::Instruction::Display {
                     value_type, line_number: pos.line_number
                 });
-                Ok(None)
+                Ok((instructions, 0, None))
             }
 
             parsing::Statement::While { condition, block } => {
                 let block_end_id = self.new_id();
-                self.final_ir.push(super::Instruction::Jump(block_end_id));
-
                 let start_id = self.new_id();
-                self.final_ir.push(super::Instruction::Label(start_id));
+                
+                let mut instructions = vec![
+                    super::Instruction::Jump(block_end_id),
+                    super::Instruction::Label(start_id)
+                ];
 
-                let block_ret_type = self.eval_block(block, vec![])?;
-                self.final_ir.push(super::Instruction::Label(block_end_id));
+                let (block_instructions, block_locals_count, block_ret_type) = self.eval_block(block, vec![])?;
+                instructions.extend(block_instructions);
+                instructions.push(super::Instruction::Label(block_end_id));
 
-                let pos = self.expect_expr_type(condition, super::Type::Bool)?;
-                self.final_ir.push(super::Instruction::JumpIfTrue(start_id));
+                let (condition_instructions, pos) = self.expect_expr_type(condition, super::Type::Bool)?;
+                instructions.extend(condition_instructions);
+                instructions.push(super::Instruction::JumpIfTrue(start_id));
 
                 Ok(
-                    if let Some(ret_type) = block_ret_type { Some((ret_type, pos)) }
-                    else { None }
+                    if let Some(ret_type) = block_ret_type { (instructions, block_locals_count, Some((ret_type, pos))) }
+                    else { (instructions, block_locals_count, None) }
                 )
             }
 
             parsing::Statement::If { condition, block } => {
                 let skip_block_id = self.new_id();
 
-                let pos = self.expect_expr_type(condition, super::Type::Bool)?;
-                self.final_ir.push(super::Instruction::JumpIfFalse(skip_block_id));
+                let (mut instructions, pos) = self.expect_expr_type(condition, super::Type::Bool)?;
+                instructions.push(super::Instruction::JumpIfFalse(skip_block_id));
 
-                let block_ret_type = self.eval_block(block, vec![])?;
+                let (block_instructions, block_locals_count, block_ret_type) = self.eval_block(block, vec![])?;
+                instructions.extend(block_instructions);
 
-                self.final_ir.push(super::Instruction::Label(skip_block_id));
+                instructions.push(super::Instruction::Label(skip_block_id));
 
                 Ok(
-                    if let Some(ret_type) = block_ret_type { Some((ret_type, pos)) }
-                    else { None }
+                    if let Some(ret_type) = block_ret_type { (instructions, block_locals_count, Some((ret_type, pos))) }
+                    else { (instructions, block_locals_count, None) }
                 )
             }
 
             parsing::Statement::VariableDeclaration { var_type, identifier, value } => {
                 let checked_type = super::Type::from_identifier(&var_type)?;
+                let mut local_variable_count = 0;
+                let mut instructions = Vec::new();
 
                 let var_id = {
                     // If variable is already defined in this same scope then
@@ -213,7 +231,9 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                         log::trace!("Introducing variable '{}' to current scope", identifier);
 
                         let id = self.add_variable_def_to_inner_scope(identifier, checked_type.clone(), value.is_some());
-                        self.final_ir.push(super::Instruction::Local(id));
+                        
+                        instructions.push(super::Instruction::Local(id));
+                        local_variable_count = 1;
 
                         id
                     }
@@ -221,18 +241,22 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
 
                 // Ensure initial value expression is of correct type:
                 if let Some(initial_value) = value {
-                    self.expect_expr_type(initial_value, checked_type)?;
+                    let (value_instructions, _) = self.expect_expr_type(initial_value, checked_type)?;
+                    instructions.extend(value_instructions);
 
-                    // Store the initial value instruction:
-                    self.final_ir.push(super::Instruction::Store(var_id));
+                    // Store the initial value in the variable:
+                    instructions.push(super::Instruction::Store(var_id));
                 }
 
-                Ok(None)
+                Ok((instructions, local_variable_count, None))
             }
 
             parsing::Statement::VariableAssignment { identifier, assign_to } => {
+                let mut instructions = Vec::new();
+
                 let var_id = {
-                    let (assign_to_type, strm_pos) = self.eval_expr(assign_to)?;
+                    let (expr_instructions, assign_to_type, strm_pos) = self.eval_expr(assign_to)?;
+                    instructions.extend(expr_instructions);
                     
                     let var_def = self.variable_lookup(&identifier, &strm_pos)?;
 
@@ -247,9 +271,11 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                     var_def.id
                 };
 
-                self.final_ir.push(super::Instruction::Store(var_id));
+                instructions.push(super::Instruction::Store(var_id));
 
-                Ok(None)
+                // A variable assignment modifies a previously declared local
+                // variable so does not increase the local variable count:
+                Ok((instructions, 0, None))
             }
 
             parsing::Statement::FunctionDefinition { pos, identifier, parameters: _, return_type: _, body: _ } =>
@@ -259,20 +285,29 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
 
     /// Iterate over the statements contained in a block, checking each. Should
     /// a return statement be encountered, the type of the returned expression
-    /// is returned within `Ok(Some(...))`. If there are multiple return statements
-    /// then it will be ensured that they are all returning the same type.
-    fn eval_block(&mut self, block: parsing::Block, params: Vec<(String, super::Type)>) -> super::Result<Option<super::Type>> {
-        let mut ret_type = None;
+    /// is returned within `Ok((..., Some(...)))`. If there are multiple return
+    /// statements then it will be ensured that they are all returning the same
+    /// type. Also returns the number of local variables created (excluding
+    /// parameters) within the block as the first part of the returned tuple.
+    fn eval_block(&mut self, block: parsing::Block, params: Vec<(String, super::Type)>) -> super::Result<(Vec<super::Instruction>, usize, Option<super::Type>)> {
+        let mut instructions = Vec::new();
 
         self.begin_new_scope();
 
         for (identifier, param_type) in params.into_iter().rev() {
             let var_id = self.add_variable_def_to_inner_scope(identifier, param_type, true);
-            self.final_ir.push(super::Instruction::Parameter(var_id));
+            instructions.push(super::Instruction::Parameter(var_id));
         }
 
+        let mut ret_type = None;
+        let mut local_variable_count = 0;
+
         for stmt in block {
-            if let Some((new, pos)) = self.eval_inner_stmt(stmt)? {
+            let (inner_instructions, inner_locals_count, optional_ret_info) = self.eval_inner_stmt(stmt)?;
+            instructions.extend(inner_instructions);
+            local_variable_count += inner_locals_count;
+
+            if let Some((new, pos)) = optional_ret_info {
                 // Has a return type already been established for this block?
                 if let Some(current) = &ret_type {
                     if new != *current { // Can't have return statements with different types!
@@ -288,7 +323,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
 
         self.end_scope();
 
-        Ok(ret_type)
+        Ok((instructions, local_variable_count, ret_type))
     }
 
     /// Introduce a new, inner-most scope which is added to the end of the scope
@@ -357,9 +392,9 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         id
     }
 
-    /// Check the validity of a given expression as well as insert the appropriate
-    /// instructions into the final IR.
-    fn eval_expr(&mut self, expr: parsing::Expression) -> super::Result<(super::Type, stream::Position)> {
+    /// Check the validity of a given expression as well as return the appropriate
+    /// instructions to be inserted into the final IR.
+    fn eval_expr(&self, expr: parsing::Expression) -> super::Result<(Vec<super::Instruction>, super::Type, stream::Position)> {
         match expr {
             parsing::Expression::Variable { pos, identifier } => {
                 log::trace!("Searching scope for the type of referenced variable with identifier '{}'", identifier);
@@ -369,17 +404,22 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                     (def.var_type.clone(), def.id)
                 };
 
-                self.final_ir.push(super::Instruction::Push(super::Value::Variable(id)));
-
-                Ok((var_type, pos))
+                Ok((
+                    vec![super::Instruction::Push(super::Value::Variable(id))],
+                    var_type, pos
+                ))
             }
 
             parsing::Expression::FunctionCall {pos, identifier, args } => {
                 log::trace!("Searching scope for the return type of referenced function '{}' given arguments {:?}", identifier, args);
 
+                let mut instructions = Vec::new();
+
                 let mut arg_types = Vec::new();
                 for arg in args {
-                    let (arg_type, _) = self.eval_expr(arg)?;
+                    let (arg_instructions, arg_type, _) = self.eval_expr(arg)?;
+
+                    instructions.extend(arg_instructions);
                     arg_types.push(arg_type); 
                 }
 
@@ -388,45 +428,58 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                     (def.identifier.clone(), def.return_type.clone(), def.id)
                 };
 
-                self.final_ir.push(
+                instructions.push(
                     if option_ret_type.is_some() { super::Instruction::CallExpectingValue(id) }
                     else { super::Instruction::CallExpectingVoid(id) }
                 );
 
                 match option_ret_type {
-                    Some(ret_type) => Ok((ret_type.clone(), pos)),
+                    Some(ret_type) => Ok((instructions, ret_type.clone(), pos)),
                     None => Err(super::Failure::VoidFunctionInExpr(pos, ident, arg_types))
                 }
             }
 
-            parsing::Expression::Add(l, r) =>
-                Ok((super::Type::Num, self.eval_arithmetic_expr(*l, *r, super::Instruction::Add, "addition")?)),
+            parsing::Expression::Add(l, r) => {
+                let (instructions, pos) = self.eval_arithmetic_expr(*l, *r, super::Instruction::Add, "addition")?;
+                Ok((instructions, super::Type::Num, pos))
+            }
 
-            parsing::Expression::Subtract(l, r) =>
-                Ok((super::Type::Num, self.eval_arithmetic_expr(*l, *r, super::Instruction::Subtract, "subtraction")?)),
+            parsing::Expression::Subtract(l, r) => {
+                let (instructions, pos) = self.eval_arithmetic_expr(*l, *r, super::Instruction::Subtract, "subtraction")?;
+                Ok((instructions, super::Type::Num, pos))
+            }
 
-            parsing::Expression::Multiply(l, r) =>
-                Ok((super::Type::Num, self.eval_arithmetic_expr(*l, *r, super::Instruction::Multiply, "multiplication")?)),
+            parsing::Expression::Multiply(l, r) => {
+                let (instructions, pos) = self.eval_arithmetic_expr(*l, *r, super::Instruction::Multiply, "multiplication")?;
+                Ok((instructions, super::Type::Num, pos))
+            }
 
-            parsing::Expression::Divide(l, r) =>
-                Ok((super::Type::Num, self.eval_arithmetic_expr(*l, *r, super::Instruction::Divide, "divide")?)),
+            parsing::Expression::Divide(l, r) => {
+                let (instructions, pos) = self.eval_arithmetic_expr(*l, *r, super::Instruction::Divide, "divide")?;
+                Ok((instructions, super::Type::Num, pos))
+            }
 
-            parsing::Expression::GreaterThan(l, r) =>
-                Ok((super::Type::Bool, self.eval_arithmetic_expr(*l, *r, super::Instruction::GreaterThan, "greater than")?)),
+            parsing::Expression::GreaterThan(l, r) => {
+                let (instructions, pos) = self.eval_arithmetic_expr(*l, *r, super::Instruction::GreaterThan, "greater than")?;
+                Ok((instructions, super::Type::Bool, pos))
+            }
 
-            parsing::Expression::LessThan(l, r) =>
-                Ok((super::Type::Bool, self.eval_arithmetic_expr(*l, *r, super::Instruction::LessThan, "less than")?)),
+            parsing::Expression::LessThan(l, r) => {
+                let (instructions, pos) = self.eval_arithmetic_expr(*l, *r, super::Instruction::LessThan, "less than")?;
+                Ok((instructions, super::Type::Bool, pos))
+            }
 
             parsing::Expression::Equal(left, right) => {
                 log::trace!("Verifying types of equality expression - types on both sides of the operator should be the same");
 
-                let (left_type, strm_pos) = self.eval_expr(*left)?;
-                let (right_type, _) = self.eval_expr(*right)?;
+                let (mut instructions, left_type, strm_pos) = self.eval_expr(*left)?;
+                let (right_instructions, right_type, _) = self.eval_expr(*right)?;
 
                 if left_type == right_type {
-                    self.final_ir.push(super::Instruction::Equals);
+                    instructions.extend(right_instructions);
+                    instructions.push(super::Instruction::Equals);
 
-                    Ok((super::Type::Bool, strm_pos))
+                    Ok((instructions, super::Type::Bool, strm_pos))
                 }
                 else {
                     Err(super::Failure::UnexpectedType {
@@ -440,57 +493,54 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
             parsing::Expression::BooleanNot(expr) => {
                 log::trace!("Verifying type of expression to which boolean NOT operator is being applied - expecting Bool expression to right of operator");
 
-                let strm_pos = self.expect_expr_type(*expr, super::Type::Bool)?;
-                self.final_ir.push(super::Instruction::Not);
+                let (mut instructions, strm_pos) = self.expect_expr_type(*expr, super::Type::Bool)?;
+                instructions.push(super::Instruction::Not);
 
-                Ok((super::Type::Bool, strm_pos))
+                Ok((instructions, super::Type::Bool, strm_pos))
             }
 
             parsing::Expression::UnaryMinus(expr) => {
                 log::trace!("Verify type of expression to which unary minus is being applied - expecting Num");
 
-                self.final_ir.push(super::Instruction::Push(super::Value::Num(0.0)));
-                let strm_pos = self.expect_expr_type(*expr, super::Type::Num)?;
-                self.final_ir.push(super::Instruction::Subtract);
+                let mut instructions = vec![super::Instruction::Push(super::Value::Num(0.0))];
+                
+                let (contained_instructions, strm_pos) = self.expect_expr_type(*expr, super::Type::Num)?;
+                instructions.extend(contained_instructions);
+                
+                instructions.push(super::Instruction::Subtract);
 
-                Ok((super::Type::Num, strm_pos))
+                Ok((instructions, super::Type::Num, strm_pos))
             }
 
-            parsing::Expression::NumberLiteral {pos, value } => {
-                self.final_ir.push(super::Instruction::Push(super::Value::Num(value)));
+            parsing::Expression::NumberLiteral {pos, value } => 
+                Ok((vec![super::Instruction::Push(super::Value::Num(value))], super::Type::Num, pos)),
 
-                Ok((super::Type::Num, pos))
-            }
-            parsing::Expression::BooleanLiteral { pos, value } => {
-                self.final_ir.push(super::Instruction::Push(super::Value::Bool(value)));
+            parsing::Expression::BooleanLiteral { pos, value } =>
+                Ok((vec![super::Instruction::Push(super::Value::Bool(value))], super::Type::Bool, pos)),
 
-                Ok((super::Type::Bool, pos))
-            }
-            parsing::Expression::CharLiteral { pos, value } => {
-                self.final_ir.push(super::Instruction::Push(super::Value::Char(value)));
-
-                Ok((super::Type::Char, pos))
-            }
+            parsing::Expression::CharLiteral { pos, value } =>
+                Ok((vec![super::Instruction::Push(super::Value::Char(value))], super::Type::Char, pos))
         }
     }
 
     /// Ensure the two sub-expressions of an arithmetic expression are both of
     /// Num type. Insert the relevant final IR instruction also.
-    fn eval_arithmetic_expr(&mut self, left: parsing::Expression, right: parsing::Expression, instruction: super::Instruction, expr_type: &str) -> super::Result<stream::Position> {
+    fn eval_arithmetic_expr(&self, left: parsing::Expression, right: parsing::Expression, operation_instruction: super::Instruction, expr_type: &str) -> super::Result<(Vec<super::Instruction>, stream::Position)> {
         log::trace!("Verifying types of {} expression - Num type on both sides of operator expected", expr_type);
 
-        let strm_pos = self.expect_expr_type(left, super::Type::Num)?;
-        self.expect_expr_type(right, super::Type::Num)?;
+        let (mut instructions, strm_pos) = self.expect_expr_type(left, super::Type::Num)?;
+        let (right_instructions, _) = self.expect_expr_type(right, super::Type::Num)?;
 
-        self.final_ir.push(instruction);
+        instructions.extend(right_instructions);
+        instructions.push(operation_instruction);
 
-        Ok(strm_pos)
+        Ok((instructions, strm_pos))
     }
 
-    fn expect_expr_type(&mut self, expr: parsing::Expression, expected: super::Type) -> super::Result<stream::Position> {
-        let (expr_type, strm_pos) = self.eval_expr(expr)?;
+    fn expect_expr_type(&self, expr: parsing::Expression, expected: super::Type) -> super::Result<(Vec<super::Instruction>, stream::Position)> {
+        let (instructions, expr_type, strm_pos) = self.eval_expr(expr)?;
         
-        if expr_type == expected { Ok(strm_pos) }
+        if expr_type == expected { Ok((instructions, strm_pos)) }
         else {
             Err(super::Failure::UnexpectedType {
                 pos: strm_pos, expected, encountered: expr_type
@@ -550,27 +600,43 @@ mod tests {
     fn eval_exprs() {
         let mut chkr = new_empty_checker();
 
-        assert_pattern!(
+        assert_eq!(
             chkr.eval_expr(parsing::Expression::NumberLiteral { pos: Position::new(), value: 10.5 }),
-            Ok((checking::Type::Num, _))
+            Ok((
+                vec![checking::Instruction::Push(checking::Value::Num(10.5))],
+                checking::Type::Num, Position::new()
+            ))
         );
 
-        assert_pattern!(
+        assert_eq!(
             chkr.eval_expr(parsing::Expression::BooleanLiteral { pos: Position::new(), value: true }),
-            Ok((checking::Type::Bool, _))
+            Ok((
+                vec![checking::Instruction::Push(checking::Value::Bool(true))],
+                checking::Type::Bool, Position::new()
+            ))
         );
 
-        assert_pattern!(
+        assert_eq!(
             chkr.eval_expr(parsing::Expression::CharLiteral { pos: Position::new(), value: '話' }),
-            Ok((checking::Type::Char, _))
+            Ok((
+                vec![checking::Instruction::Push(checking::Value::Char('話'))],
+                checking::Type::Char, Position::new()
+            ))
         );
 
-        assert_pattern!(
+        assert_eq!(
             chkr.eval_expr(parsing::Expression::Equal(
                 Box::new(parsing::Expression::CharLiteral { pos: Position::new(), value: 'x' }),
                 Box::new(parsing::Expression::CharLiteral { pos: Position::new(), value: 'y' })
             )),
-            Ok((checking::Type::Bool, _))
+            Ok((
+                vec![
+                    checking::Instruction::Push(checking::Value::Char('x')),
+                    checking::Instruction::Push(checking::Value::Char('y')),
+                    checking::Instruction::Equals
+                ],
+                checking::Type::Bool, Position::new()
+            ))
         );
 
         assert_pattern!(
@@ -584,12 +650,19 @@ mod tests {
             })
         );
 
-        assert_pattern!(
+        assert_eq!(
             chkr.eval_expr(parsing::Expression::GreaterThan(
                 Box::new(parsing::Expression::NumberLiteral { pos: Position::new(), value: 1.34 }),
                 Box::new(parsing::Expression::NumberLiteral { pos: Position::new(), value: 0.95 })
             )),
-            Ok((checking::Type::Bool, _))
+            Ok((
+                vec![
+                    checking::Instruction::Push(checking::Value::Num(1.34)),
+                    checking::Instruction::Push(checking::Value::Num(0.95)),
+                    checking::Instruction::GreaterThan
+                ],
+                checking::Type::Bool, Position::new()
+            ))
         );
 
         assert_pattern!(
@@ -603,12 +676,19 @@ mod tests {
             })
         );
 
-        assert_pattern!(
+        assert_eq!(
             chkr.eval_expr(parsing::Expression::Add(
                 Box::new(parsing::Expression::NumberLiteral { pos: Position::new(), value: 10.0 }),
                 Box::new(parsing::Expression::NumberLiteral { pos: Position::new(), value: 11.2 })
             )),
-            Ok((checking::Type::Num, _))
+            Ok((
+                vec![
+                    checking::Instruction::Push(checking::Value::Num(10.0)),
+                    checking::Instruction::Push(checking::Value::Num(11.2)),
+                    checking::Instruction::Add
+                ],
+                checking::Type::Num, Position::new()
+            ))
         );
 
         assert_pattern!(
@@ -630,27 +710,36 @@ mod tests {
             Err(checking::Failure::VariableNotInScope(_, _))
         );
 
-        chkr.add_variable_def_to_inner_scope("var".to_string(), checking::Type::Num, true);
+        let var_id = chkr.add_variable_def_to_inner_scope("var".to_string(), checking::Type::Num, true);
 
         chkr.begin_new_scope();
-        assert_pattern!(
+        assert_eq!(
             chkr.eval_expr(parsing::Expression::Variable {
                 pos: Position::new(),
                 identifier: "var".to_string()
             }),
-            Ok((checking::Type::Num, _))
+            Ok((
+                vec![checking::Instruction::Push(checking::Value::Variable(var_id))],
+                checking::Type::Num, Position::new()
+            ))
         );
         chkr.end_scope();
 
-        chkr.add_function_def("func".to_string(), vec![], Some(checking::Type::Num), 0);
+        chkr.add_function_def("func".to_string(), vec![checking::Type::Char], Some(checking::Type::Num), 0);
 
-        assert_pattern!(
+        assert_eq!(
             chkr.eval_expr(parsing::Expression::FunctionCall {
                 pos: Position::new(),
                 identifier: "func".to_string(),
-                args: vec![]
+                args: vec![parsing::Expression::CharLiteral { pos: Position::new(), value: 'a' }]
             }),
-            Ok((checking::Type::Num, _))
+            Ok((
+                vec![
+                    checking::Instruction::Push(checking::Value::Char('a')),
+                    checking::Instruction::CallExpectingValue(0)
+                ],
+                checking::Type::Num, Position::new()
+            ))
         );
 
         match chkr.eval_expr(parsing::Expression::FunctionCall {
@@ -687,27 +776,44 @@ mod tests {
 
         assert_eq!(
             chkr.eval_inner_stmt(parsing::Statement::Return(None)),
-            Ok(None)
+            Ok((vec![checking::Instruction::ReturnVoid], 0, None))
         );
 
-        assert_pattern!(
+        assert_eq!(
             chkr.eval_inner_stmt(parsing::Statement::Return(Some(
                 parsing::Expression::Add(
                     Box::new(parsing::Expression::NumberLiteral { pos: Position::new(), value: 1.2 }),
                     Box::new(parsing::Expression::NumberLiteral { pos: Position::new(), value: 2.8 })
                 )
             ))),
-            Ok(Some((checking::Type::Num, _)))
+            Ok((
+                vec![
+                    checking::Instruction::Push(checking::Value::Num(1.2)),
+                    checking::Instruction::Push(checking::Value::Num(2.8)),
+                    checking::Instruction::Add,
+                    checking::Instruction::ReturnValue
+                ],
+                0, Some((checking::Type::Num, Position::new()))
+            ))
         );
 
-        assert_pattern!(
+        assert_eq!(
             chkr.eval_inner_stmt(parsing::Statement::If {
                 condition: parsing::Expression::BooleanLiteral { pos: Position::new(), value: true },
                 block: vec![
                     parsing::Statement::Return(Some(parsing::Expression::CharLiteral { pos: Position::new(), value: 'x' }))
                 ]
             }),
-            Ok(Some((checking::Type::Char, _)))
+            Ok((
+                vec![
+                    checking::Instruction::Push(checking::Value::Bool(true)),
+                    checking::Instruction::JumpIfFalse(0),
+                    checking::Instruction::Push(checking::Value::Char('x')),
+                    checking::Instruction::ReturnValue,
+                    checking::Instruction::Label(0)
+                ],
+                0, Some((checking::Type::Char, Position::new()))
+            ))
         );
 
         assert_eq!(
@@ -716,7 +822,14 @@ mod tests {
                 var_type: "Num".to_string(),
                 value: Some(parsing::Expression::NumberLiteral { pos: Position::new(), value: 3.14 })
             }),
-            Ok(None)
+            Ok((
+                vec![
+                    checking::Instruction::Local(1),
+                    checking::Instruction::Push(checking::Value::Num(3.14)),
+                    checking::Instruction::Store(1)
+                ],
+                1, None
+            ))
         );
         assert!(chkr.variable_lookup("pi", &Position::new()).is_ok());
 
@@ -729,12 +842,12 @@ mod tests {
             Err(checking::Failure::NonexistentPrimitiveType("Oops".to_string()))
         );
 
-        assert_eq!(
+        assert_pattern!(
             chkr.eval_inner_stmt(parsing::Statement::VariableAssignment {
                 identifier: "pi".to_string(),
                 assign_to: parsing::Expression::NumberLiteral { pos: Position::new(), value: 3.1 }
             }),
-            Ok(None)
+            Ok((_, _, None))
         );
 
         assert_pattern!(
@@ -764,15 +877,25 @@ mod tests {
     fn eval_top_level_stmts() -> checking::Result<()> {
         let mut chkr = new_empty_checker();
 
+        pretty_env_logger::init();
         assert_eq!(
             chkr.eval_top_level_stmt(parsing::Statement::FunctionDefinition {
                 identifier: "func".to_string(),
                 parameters: vec![],
                 return_type: None,
-                body: vec![],
+                body: vec![
+                    parsing::Statement::VariableDeclaration {
+                        identifier: "var".to_string(), var_type: "Num".to_string(),
+                        value: None
+                    }
+                ],
                 pos: Position::new()
             }),
-            Ok(())
+            Ok(vec![
+                checking::Instruction::Function { id: 0, local_variable_count: 1 },
+                checking::Instruction::Local(1),
+                checking::Instruction::ReturnVoid
+            ])
         );
         assert!(chkr.function_lookup("func", &[], &Position::new())?.return_type.is_none());
 
@@ -829,6 +952,8 @@ mod tests {
             ))
         );
 
+        chkr.id_counter = 0;
+
         assert_eq!(
             chkr.eval_top_level_stmt(parsing::Statement::FunctionDefinition {
                 identifier: "useless_function".to_string(),
@@ -846,7 +971,12 @@ mod tests {
                 ],
                 pos: Position::new()
             }),
-            Ok(())
+            Ok(vec![
+                checking::Instruction::Function { id: 0, local_variable_count: 0 },
+                checking::Instruction::Parameter(1),
+                checking::Instruction::Push(checking::Value::Variable(1)),
+                checking::Instruction::ReturnValue
+            ])
         );
 
         Ok(())

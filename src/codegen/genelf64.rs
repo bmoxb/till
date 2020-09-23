@@ -10,7 +10,8 @@ struct GenerateElf64 {
     text_section: Vec<Instruction>,
     bss_section: Vec<Instruction>,
     rodata_section: Vec<Instruction>,
-    variable_locations: HashMap<checking::Id, Oprand>,
+    local_variable_locations: HashMap<checking::Id, Oprand>,
+    //global_variable_labels: HashMap<checking::Id,
     num_label_counter: usize
 }
 
@@ -31,7 +32,7 @@ impl GenerateElf64 {
             ],
             bss_section: vec![Instruction::Section("bss".to_string())],
             rodata_section: vec![Instruction::Section("rodata".to_string())],
-            variable_locations: HashMap::new(),
+            local_variable_locations: HashMap::new(),
             num_label_counter: 0
         }
     }
@@ -114,7 +115,7 @@ impl Generator for GenerateElf64 {
 
             checking::Instruction::Label(id) => { self.text_section.push(Instruction::Label(label(id))); }
 
-            checking::Instruction::Function(id) => { 
+            checking::Instruction::Function { id, local_variable_count } => { 
                 // TODO: Count number of local variables and set aside stack space accordingly.
 
                 self.text_section.extend(vec![

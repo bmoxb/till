@@ -146,7 +146,7 @@ pub enum Value {
 
 /// Represents the simple, assembly-like instructions that make up the final
 /// immediate representation of a till program.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Instruction {
     /// Create a global variable with a given ID.
     Global(Id),
@@ -162,7 +162,7 @@ pub enum Instruction {
     /// the beginning of a function or loop).
     Label(Id),
     /// Identify the start of a function which can be later called upon.
-    Function(Id),
+    Function { id: Id, local_variable_count: usize },
     /// Jump to function specified by the given ID, return here when return
     /// instruction encountered. The function called should not return a value.
     CallExpectingVoid(Id),
