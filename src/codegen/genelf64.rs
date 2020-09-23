@@ -108,10 +108,10 @@ impl Generator for GenerateElf64 {
                 unimplemented!()
             }
 
-            checking::Instruction::Global(id) => {
+            /*checking::Instruction::Global(id) => {
                 // TODO: Store in data section...
                 unimplemented!()
-            }
+            }*/
 
             checking::Instruction::Label(id) => { self.text_section.push(Instruction::Label(label(id))); }
 

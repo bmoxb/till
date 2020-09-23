@@ -149,7 +149,7 @@ pub enum Value {
 #[derive(Debug, PartialEq)]
 pub enum Instruction {
     /// Create a global variable with a given ID.
-    Global(Id),
+    //Global(Id),
     /// Create a function parameter with a given ID.
     Parameter(Id),
     /// Reserve stack space for a local variable with a given ID.

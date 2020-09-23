@@ -2,7 +2,7 @@
 //! a final immediate representation of the input program.
 
 use crate::{ stream, parsing };
-use std::collections::HashMap;
+//use std::collections::HashMap;
 
 pub fn input<T: Iterator<Item=parsing::Statement>>(stmts: T) -> super::Result<Vec<super::Instruction>> {
     Checker::new(stmts).execute()
