@@ -132,7 +132,7 @@ struct FunctionDef {
     identifier: String,
     parameter_types: Vec<Type>,
     return_type: Option<Type>,
-    id: Id
+    label: String
 }
 
 #[derive(Debug, PartialEq)]
@@ -162,11 +162,11 @@ pub enum Instruction {
     /// the beginning of a function or loop).
     Label(Id),
     /// Identify the start of a function which can be later called upon.
-    Function { id: Id, local_variable_count: usize },
-    /// Jump to function specified by the given ID, return here when return
+    Function { label: String, local_variable_count: usize },
+    /// Jump to the function with the specified label, return here when return
     /// instruction encountered. The function called should not return a value.
-    CallExpectingVoid(Id),
-    CallExpectingValue(Id),
+    CallExpectingVoid(String),
+    CallExpectingValue(String),
     /// Return from call, returning value on top of stack. Will also result in
     /// the deallocation of all variables allocated since the last begin scope
     /// instruction.

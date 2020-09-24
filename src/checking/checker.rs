@@ -23,7 +23,9 @@ pub struct Checker<T: Iterator<Item=parsing::Statement>> {
     /// Counter for creating unique IDs.
     id_counter: super::Id,
     /// IDs of local variables that are no longer used (i.e. went out of scope).
-    available_local_variable_ids: Vec<super::Id>
+    available_local_variable_ids: Vec<super::Id>,
+    /// Has the main function been defined?
+    main_defined: bool
 }
 
 impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
@@ -34,7 +36,8 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
             functions: Vec::new(),
             scopes: Vec::new(),
             id_counter: 0,
-            available_local_variable_ids: Vec::new()
+            available_local_variable_ids: Vec::new(),
+            main_defined: false
         }
     }
 
@@ -54,7 +57,8 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
 
         assert!(self.scopes.is_empty());
 
-        Ok(final_ir)
+        if self.main_defined { Ok(final_ir) }
+        else { panic!() } // TODO: New error message...
     }
 
     /// Ensure the validity and evaluate a top-level statement (function or global
@@ -62,8 +66,15 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
     fn eval_top_level_stmt(&mut self, stmt: parsing::Statement) -> super::Result<Vec<super::Instruction>> {
         match stmt {
             parsing::Statement::FunctionDefinition { pos, identifier, parameters, return_type, body } => {
-                // Create a new ID for this function:
-                let id = self.new_id();
+                // Create a label for this function ("main" if the main function,
+                // "func" followed by a new ID otherwise):
+                let label = {
+                    if identifier == "main" && parameters.is_empty() {
+                        self.main_defined = true;
+                        identifier.clone()
+                    }
+                    else { format!("func{}", self.new_id()) }
+                };
 
                 // Check the declared return type is actually a real type:
                 let checked_return_type = return_type.map(|x| super::Type::from_identifier(&x)).transpose()?;
@@ -81,13 +92,13 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                 else {
                     // Create the function definition before evaluating the body
                     // so as to allow recursion:
-                    self.add_function_def(identifier.clone(), param_types.clone(), checked_return_type.clone(), id);
+                    self.add_function_def(identifier.clone(), param_types.clone(), checked_return_type.clone(), label.clone());
                 }
 
                 // Evaluate the function body:
                 let (body_instructions, local_variable_count, optional_body_return_type) = self.eval_block(body, checked_parameters)?;
 
-                let mut instructions = vec![super::Instruction::Function { id, local_variable_count }];
+                let mut instructions = vec![super::Instruction::Function { label, local_variable_count }];
                 instructions.extend(body_instructions);
 
                 // Return type specified in function signature:
@@ -360,9 +371,9 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         Err(super::Failure::FunctionUndefined(strm_pos.clone(), ident.to_string(), params.to_vec()))
     }
 
-    fn add_function_def(&mut self, identifier: String, parameter_types: Vec<super::Type>, return_type: Option<super::Type>, id: super::Id) {
+    fn add_function_def(&mut self, identifier: String, parameter_types: Vec<super::Type>, return_type: Option<super::Type>, label: String) {
         self.functions.push(super::FunctionDef {
-            identifier, parameter_types, return_type, id
+            identifier, parameter_types, return_type, label
         });
     }
 
@@ -423,14 +434,14 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                     arg_types.push(arg_type); 
                 }
 
-                let (ident, option_ret_type, id) = {
+                let (ident, option_ret_type, label) = {
                     let def = self.function_lookup(&identifier, arg_types.as_slice(), &pos)?;
-                    (def.identifier.clone(), def.return_type.clone(), def.id)
+                    (def.identifier.clone(), def.return_type.clone(), def.label.clone())
                 };
 
                 instructions.push(
-                    if option_ret_type.is_some() { super::Instruction::CallExpectingValue(id) }
-                    else { super::Instruction::CallExpectingVoid(id) }
+                    if option_ret_type.is_some() { super::Instruction::CallExpectingValue(label) }
+                    else { super::Instruction::CallExpectingVoid(label) }
                 );
 
                 match option_ret_type {
@@ -725,7 +736,7 @@ mod tests {
         );
         chkr.end_scope();
 
-        chkr.add_function_def("func".to_string(), vec![checking::Type::Char], Some(checking::Type::Num), 0);
+        chkr.add_function_def("func".to_string(), vec![checking::Type::Char], Some(checking::Type::Num), "func0".to_string());
 
         assert_eq!(
             chkr.eval_expr(parsing::Expression::FunctionCall {
@@ -736,7 +747,7 @@ mod tests {
             Ok((
                 vec![
                     checking::Instruction::Push(checking::Value::Char('a')),
-                    checking::Instruction::CallExpectingValue(0)
+                    checking::Instruction::CallExpectingValue("func0".to_string())
                 ],
                 checking::Type::Num, Position::new()
             ))
@@ -756,7 +767,7 @@ mod tests {
             _ => panic!()
         }
 
-        chkr.add_function_def("abc".to_string(), vec![checking::Type::Char], None, 1);
+        chkr.add_function_def("abc".to_string(), vec![checking::Type::Char], None, "func1".to_string());
 
         assert_pattern!(
             chkr.eval_expr(parsing::Expression::FunctionCall {
@@ -892,7 +903,7 @@ mod tests {
                 pos: Position::new()
             }),
             Ok(vec![
-                checking::Instruction::Function { id: 0, local_variable_count: 1 },
+                checking::Instruction::Function { label: "func0".to_string(), local_variable_count: 1 },
                 checking::Instruction::Local(1),
                 checking::Instruction::ReturnVoid
             ])
@@ -972,12 +983,21 @@ mod tests {
                 pos: Position::new()
             }),
             Ok(vec![
-                checking::Instruction::Function { id: 0, local_variable_count: 0 },
+                checking::Instruction::Function { label: "func0".to_string(), local_variable_count: 0 },
                 checking::Instruction::Parameter(1),
                 checking::Instruction::Push(checking::Value::Variable(1)),
                 checking::Instruction::ReturnValue
             ])
         );
+
+        let main_func = chkr.eval_top_level_stmt(parsing::Statement::FunctionDefinition {
+            identifier: "main".to_string(),
+            parameters: vec![],
+            return_type: None,
+            body: vec![],
+            pos: Position::new()
+        })?;
+        assert_eq!(main_func[0], checking::Instruction::Function { label: "main".to_string(), local_variable_count: 0 });
 
         Ok(())
     }

@@ -10,9 +10,11 @@ struct GenerateElf64 {
     text_section: Vec<Instruction>,
     bss_section: Vec<Instruction>,
     rodata_section: Vec<Instruction>,
-    local_variable_locations: HashMap<checking::Id, Oprand>,
+    num_label_counter: usize,
     //global_variable_labels: HashMap<checking::Id,
-    num_label_counter: usize
+    function_variable_locations: HashMap<checking::Id, Oprand>,
+    local_variable_num: usize,
+    parameter_variable_num: usize
 }
 
 impl GenerateElf64 {
@@ -22,25 +24,30 @@ impl GenerateElf64 {
                 Instruction::Comment(format!("Target: {}", Self::TARGET_NAME)),
                 Instruction::Section("text".to_string()),
                 Instruction::Extern("printf".to_string()),
-                Instruction::Global("main".to_string()),
-                Instruction::Label("main".to_string()),
-                Instruction::Push(Oprand::Register(Reg::BasePointer)),
-                Instruction::Mov {
-                    dest: Oprand::Register(Reg::BasePointer),
-                    src: Oprand::Register(Reg::StackPointer)
-                }
+                Instruction::Global("main".to_string())
             ],
             bss_section: vec![Instruction::Section("bss".to_string())],
             rodata_section: vec![Instruction::Section("rodata".to_string())],
-            local_variable_locations: HashMap::new(),
-            num_label_counter: 0
+            num_label_counter: 0,
+            function_variable_locations: HashMap::new(),
+            local_variable_num: 0,
+            parameter_variable_num: 0
         }
     }
 }
 
+const BYTES_IN_VALUE: isize = 8;
+const CARRY_FLAG_BIT_OFFSET: usize = 8;
+const ZERO_FLAG_BIT_OFFSET: usize = 14;
+
 const RETURN_INSTRUCTIONS: &'static [Instruction] = &[
+    // Restore stack pointer:
+    Instruction::Mov {
+        dest: Oprand::Register(Reg::StackPointer),
+        src: Oprand::Register(Reg::BasePointer)
+    },
     Instruction::Pop(Oprand::Register(Reg::BasePointer)), // Restore the base pointer of the previous frame.
-    Instruction::Ret(16) // Shift stack pointer by 2 (remove old base pointer, return address) when returning.
+    Instruction::Ret(0) // TODO
 ];
 
 const POP_AND_CMP_WITH_ZERO_INSTRUCTIONS: &'static [Instruction] = &[
@@ -68,7 +75,7 @@ impl Generator for GenerateElf64 {
                     }
 
                     checking::Value::Variable(var_id) =>
-                        Oprand::Address(Box::new(Oprand::Label(var_label(var_id)))),
+                        self.function_variable_locations.get(&var_id).unwrap().clone(),
 
                     checking::Value::Char(chr_val) =>
                         Oprand::Value(Val::Int(chr_val as isize)),
@@ -81,31 +88,33 @@ impl Generator for GenerateElf64 {
             }
 
             checking::Instruction::Store(id) => {
-                let label = var_label(id);
+                let location = self.function_variable_locations.get(&id).unwrap();
 
-                // Store value on top of stack in .data section:
-                self.text_section.push(Instruction::Pop(
-                    Oprand::Address(Box::new(Oprand::Label(label)))
-                ));
+                self.text_section.push(Instruction::Pop(location.clone()));
             }
 
             checking::Instruction::Parameter(id) => {
-                unimplemented!(); // TODO
-                /* Store function argument in parameter variable:
-                self.text_section.extend(vec![
-                    Instruction::Mov {
-                        dest: Oprand::Register(Reg::Rax),
-                        src: Oprand::AddressDisplaced(Box::new(Oprand::Register(Reg::StackPointer)), 16 + (param_number * 8))
-                    },
-                    Instruction::Mov {
-                        dest: Oprand::Address(Box::new(Oprand::Label(var_label(store_in)))),
-                        src: Oprand::Register(Reg::Rax)
-                    }
-                ]);*/
+                self.function_variable_locations.insert(
+                    id,
+                    Oprand::AddressDisplaced(
+                        Box::new(Oprand::Register(Reg::BasePointer)),
+                        (self.parameter_variable_num as isize + 2) * BYTES_IN_VALUE
+                    )
+                );
+
+                self.parameter_variable_num += 1;
             }
 
             checking::Instruction::Local(id) => {
-                unimplemented!()
+                self.function_variable_locations.insert(
+                    id,
+                    Oprand::AddressDisplaced(
+                        Box::new(Oprand::Register(Reg::BasePointer)),
+                        -BYTES_IN_VALUE * (self.local_variable_num as isize + 1)
+                    )
+                );
+
+                self.local_variable_num += 1;
             }
 
             /*checking::Instruction::Global(id) => {
@@ -115,26 +124,35 @@ impl Generator for GenerateElf64 {
 
             checking::Instruction::Label(id) => { self.text_section.push(Instruction::Label(label(id))); }
 
-            checking::Instruction::Function { id, local_variable_count } => { 
-                // TODO: Count number of local variables and set aside stack space accordingly.
+            checking::Instruction::Function { label, local_variable_count } => {
+                // Beginning a new function so naturally there are no local
+                // variables or parameters defined yet:
+                self.local_variable_num = 0;
+                self.parameter_variable_num = 0;
+                self.function_variable_locations.clear();
 
                 self.text_section.extend(vec![
-                    Instruction::Label(func_label(id)),
+                    Instruction::Label(label),
                     // Preserve the base pointer of the previous frame:
                     Instruction::Push(Oprand::Register(Reg::BasePointer)),
                     // Create a new frame beginning at the current stack top:
                     Instruction::Mov {
                         dest: Oprand::Register(Reg::BasePointer),
                         src: Oprand::Register(Reg::StackPointer)
+                    },
+                    // Reserve stack space for the storage of local variables:
+                    Instruction::Sub {
+                        dest: Oprand::Register(Reg::StackPointer),
+                        src: Oprand::Value(Val::Int(local_variable_count as isize * BYTES_IN_VALUE))
                     }
                 ]);
             }
 
-            checking::Instruction::CallExpectingVoid(id) => { self.text_section.push(Instruction::Call(func_label(id))); }
+            checking::Instruction::CallExpectingVoid(label) => { self.text_section.push(Instruction::Call(label)); }
 
-            checking::Instruction::CallExpectingValue(id) => {
+            checking::Instruction::CallExpectingValue(label) => {
                 self.text_section.extend(vec![
-                    Instruction::Call(func_label(id)),
+                    Instruction::Call(label),
                     // Place the function return value on the stack:
                     Instruction::Push(Oprand::Register(Reg::Rax))
                 ]);
@@ -180,8 +198,12 @@ impl Generator for GenerateElf64 {
                     Instruction::Mov { dest: Oprand::Register(Reg::SrcIndex), src: Oprand::Value(Val::Int(line_number as isize)) },
                     // Indicate number of floating-point arguments:
                     Instruction::Mov { dest: Oprand::Register(Reg::Rax), src: Oprand::Value(Val::Int(float_args_count)) },
+                    // Account for modification of registers by function call:
+                    Instruction::Mov { dest: Oprand::Register(Reg::StackPointer), src: Oprand::Register(Reg::BasePointer) },
                     // Call printf function:
-                    Instruction::Call("printf".to_string())
+                    Instruction::Call("printf".to_string()),
+                    // Restore:
+                    Instruction::Mov { dest: Oprand::Register(Reg::BasePointer), src: Oprand::Register(Reg::BasePointer) }
                 ]);
             }
 
@@ -231,7 +253,7 @@ impl Generator for GenerateElf64 {
             checking::Instruction::GreaterThan => {
                 self.add_comparison_instructions(vec![
                     // Extract the carry flag bit (indicates greater than when set in this instance):
-                    Instruction::Shr { dest: Oprand::Register(Reg::Ax), shift_by: 8 }
+                    Instruction::Shr { dest: Oprand::Register(Reg::Ax), shift_by: CARRY_FLAG_BIT_OFFSET }
                 ]);
             }
 
@@ -240,9 +262,9 @@ impl Generator for GenerateElf64 {
                     // Create second copy of FPU status word:
                     Instruction::Mov { dest: Oprand::Register(Reg::Bx), src: Oprand::Register(Reg::Ax) },
                     // Have carry flag as least significant bit of ax:
-                    Instruction::Shr { dest: Oprand::Register(Reg::Ax), shift_by: 8 },
+                    Instruction::Shr { dest: Oprand::Register(Reg::Ax), shift_by: CARRY_FLAG_BIT_OFFSET },
                     // Have zero flag as least significant bit of bx:
-                    Instruction::Shr { dest: Oprand::Register(Reg::Bx), shift_by: 14 },
+                    Instruction::Shr { dest: Oprand::Register(Reg::Bx), shift_by: ZERO_FLAG_BIT_OFFSET },
                     // Both carry flag and zero flag being 0 indicates less than:
                     Instruction::BitwiseOr { dest: Oprand::Register(Reg::Ax), src: Oprand::Register(Reg::Bx) },
                     Instruction::BitwiseNot(Oprand::Register(Reg::Ax))
@@ -287,11 +309,11 @@ impl GenerateElf64 {
         self.text_section.extend(vec![
             Instruction::FpuReset,
             // Load second-to-top of stack onto FPU stack:
-            Instruction::FpuPush(Oprand::AddressDisplaced(Box::new(Oprand::Register(Reg::StackPointer)), 8)),
+            Instruction::FpuPush(Oprand::AddressDisplaced(Box::new(Oprand::Register(Reg::StackPointer)), BYTES_IN_VALUE)),
             // Load top of stack onto FPU stack:
             Instruction::FpuPush(Oprand::Address(Box::new(Oprand::Register(Reg::StackPointer)))),
             // Move stack pointer:
-            Instruction::Add { dest: Oprand::Register(Reg::StackPointer), src: Oprand::Value(Val::Int(8)) },
+            Instruction::Add { dest: Oprand::Register(Reg::StackPointer), src: Oprand::Value(Val::Int(BYTES_IN_VALUE)) },
         ]);
     }
 
@@ -421,7 +443,7 @@ enum Oprand {
     Value(Val),
     Register(Reg),
     Address(Box<Oprand>),
-    AddressDisplaced(Box<Oprand>, usize),
+    AddressDisplaced(Box<Oprand>, isize),
 }
 
 impl AssemblyDisplay for Oprand {
@@ -431,7 +453,7 @@ impl AssemblyDisplay for Oprand {
             Oprand::Value(x) => x.intel_syntax(),
             Oprand::Register(x) => x.intel_syntax(),
             Oprand::Address(x) => format!("[{}]", x.intel_syntax()),
-            Oprand::AddressDisplaced(x, displacement) => format!("[{} + {}]", x.intel_syntax(), displacement)
+            Oprand::AddressDisplaced(x, displacement) => format!("[{}{:+}]", x.intel_syntax(), displacement)
         }
     }
 }
@@ -468,10 +490,6 @@ impl AssemblyDisplay for Reg {
 }
 
 fn label(id: usize) -> String { format!("label{}", id) }
-
-fn func_label(id: usize) -> String { format!("func{}", id) }
-
-fn var_label(id: usize) -> String { format!("var{}", id) }
 
 fn literal_label(counter: usize) -> String { format!("literal{}", counter) }
 
