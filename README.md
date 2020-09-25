@@ -11,12 +11,12 @@
 * Expressions with proper operator precedence
 * Function overloading
 * Recursive-descent parser
-* OS-independent x86_64 Intel-syntax assembly output (buggy)
+* Intel-syntax x86_64 assembly produced
 
 ## Known Issues
 
 * Only indentation with literal `\t` tab characters is allowed - indentation with spaces is not supported.
-* All values are stored as 64-bits regardless of type (especially wasteful in the case of Boolean values).
+* All values take up 8 bytes regardless of type (especially wasteful in the case of Boolean values).
 * The produced output assembly code is entirely unoptimised.
 * Defining a function expected to return a value that has a function body not guaranteed to return does not result in a compiler error or warning provided at least one `return` statement is found in the function body.
 * The use of uninitialised variables is not prevented nor acknowledged by the compiler.
