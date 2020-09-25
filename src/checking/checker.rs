@@ -59,8 +59,8 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         else { Err(super::Failure::MainUndefined) }
     }
 
-    /// Ensure the validity and evaluate a top-level statement (function or global
-    /// variable definitions expected).
+    /// Ensure the validity and evaluate a top-level statement (function
+    /// definition expected).
     fn eval_top_level_stmt(&mut self, stmt: parsing::Statement) -> super::Result<Vec<super::Instruction>> {
         match stmt {
             parsing::Statement::FunctionDefinition { pos, identifier, parameters, return_type, body } => {
@@ -148,7 +148,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
     /// `Result` containing a tuple. The first item in this tuple will be a
     /// vector containing final IR instructions. The second item will be the
     /// number of local variables declared by the given statement. The final
-    /// item in the tuple will ve a return type and stream position should
+    /// item in the tuple will be a return type and stream position should
     /// the statement be a return statement or an if or while statement with a
     /// block containing a return statement.
     fn eval_inner_stmt(&mut self, stmt: parsing::Statement) -> super::Result<(Vec<super::Instruction>, usize, Option<(super::Type, stream::Position)>)> {
@@ -291,10 +291,10 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
 
     /// Iterate over the statements contained in a block, checking each. Should
     /// a return statement be encountered, the type of the returned expression
-    /// is returned within `Ok((..., Some(...)))`. If there are multiple return
+    /// is returned within `Ok((_, _, Some(...)))`. If there are multiple return
     /// statements then it will be ensured that they are all returning the same
     /// type. Also returns the number of local variables created (excluding
-    /// parameters) within the block as the first part of the returned tuple.
+    /// parameters) within the block as the second part of the returned tuple.
     fn eval_block(&mut self, block: parsing::Block, params: Vec<(String, super::Type)>) -> super::Result<(Vec<super::Instruction>, usize, Option<super::Type>)> {
         let mut instructions = Vec::new();
 
@@ -338,13 +338,12 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         self.scopes.push(super::Scope { variables: Vec::new() });
     }
 
-    /// Remove the inner-most scope from the scopes stack and deallocate all the
-    /// variables from said scope.
+    /// Remove the inner-most scope from the scopes stack and allow for the usage
+    /// of the IDs of all variables that belonged to said scope.
     fn end_scope(&mut self) {
         if let Some(previous_scope) = self.scopes.pop() {
             for def in previous_scope.variables {
                 self.available_local_variable_ids.push(def.id);
-                //self.final_ir.push(super::Instruction::Free(def.id));
             }
         }
     }

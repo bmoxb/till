@@ -1,3 +1,6 @@
+//! Module contain code for the generation of x86_64 elf64 Intel-syntax assembly
+//! code.
+
 use crate::checking;
 use super::Generator;
 use std::collections::HashMap;

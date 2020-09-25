@@ -5,9 +5,12 @@ pub mod genelf64;
 
 use crate::checking;
 
+/// Generate assembly code from final IR instructions trait.
 trait Generator {
     const TARGET_NAME: &'static str;
 
+    /// Convert a set of given final immediate representation instructions into
+    /// assembly code.
     fn execute(mut self, instructions: Vec<checking::Instruction>) -> String where Self: Sized {
         for instruction in instructions {
             log::trace!("Handling instruction: {:?}", instruction);
