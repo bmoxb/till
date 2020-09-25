@@ -28,7 +28,7 @@ use std::{
 };
 
 fn main() {
-    println!("-- Till Compiler {} --\n", env!("CARGO_PKG_VERSION"));
+    println!("-- Till Compiler {} --", env!("CARGO_PKG_VERSION"));
 
     // Only enable logging if debug build:
     #[cfg(debug_assertions)]
