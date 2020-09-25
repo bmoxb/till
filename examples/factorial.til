@@ -1,0 +1,12 @@
+factorial(Num n) -> Num
+	if n < 3
+		return n
+
+	return n * factorial(n - 1)
+
+main()
+	Num i = 1
+
+	while i < 11
+		display factorial(i)
+		i = i + 1
