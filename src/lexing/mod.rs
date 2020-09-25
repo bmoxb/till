@@ -107,7 +107,6 @@ where StateKey: Eq + Copy + Hash + fmt::Debug, TokenType: Clone + fmt::Debug {
 /// input character. Will return `Some` holding the next state key should an
 /// appropriate transition be found (whether to the current state or elsewhere).
 /// `None` is returned when no appropriate transitions could be found.
-// TODO: Make method of `Dest` or `Transition`?
 fn attempt_state_transition<StateKey>(current_key: StateKey, transitions : &Vec<Transition<StateKey>>, chr: char) -> Option<StateKey>
 where StateKey: Copy + fmt::Debug {
     for transition in transitions {
@@ -128,7 +127,6 @@ where StateKey: Copy + fmt::Debug {
     None // No appropriate transition found (to self or otherwise) so return nothing.
 }
 
-// TODO: Make method of `Parse`?
 fn attempt_parse_lexeme_to_token<TokenType, StateKey>(lexeme: Lexeme, next_chr: Option<char>, final_state: &State<TokenType, StateKey>) -> Result<GenericToken<TokenType>>
 where TokenType: fmt::Debug + Clone {
     match final_state.parse.lexeme_string_to_token_type::<StateKey>(&lexeme.text) {
