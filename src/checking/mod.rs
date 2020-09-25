@@ -125,7 +125,6 @@ pub type Id = usize;
 struct VariableDef {
     identifier: String,
     var_type: Type,
-    initialised: bool,
     id: Id
 }
 

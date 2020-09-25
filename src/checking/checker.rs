@@ -236,7 +236,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                     else {
                         log::trace!("Introducing variable '{}' to current scope", identifier);
 
-                        let id = self.add_variable_def_to_inner_scope(identifier, checked_type.clone(), value.is_some());
+                        let id = self.add_variable_def_to_inner_scope(identifier, checked_type.clone());
                         
                         instructions.push(super::Instruction::Local(id));
                         local_variable_count = 1;
@@ -301,7 +301,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         self.begin_new_scope();
 
         for (identifier, param_type) in params.into_iter().rev() {
-            let var_id = self.add_variable_def_to_inner_scope(identifier, param_type, true);
+            let var_id = self.add_variable_def_to_inner_scope(identifier, param_type);
             instructions.push(super::Instruction::Parameter(var_id));
         }
 
@@ -385,14 +385,14 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         Err(super::Failure::VariableNotInScope(strm_pos.clone(), ident.to_string()))
     }
 
-    fn add_variable_def_to_inner_scope(&mut self, identifier: String, var_type: super::Type, initialised: bool) -> super::Id {
+    fn add_variable_def_to_inner_scope(&mut self, identifier: String, var_type: super::Type) -> super::Id {
         let id = {
             if let Some(available_id) = self.available_local_variable_ids.pop() { available_id }
             else { self.new_id() }
         };
         
         self.get_inner_scope().variables.push(super::VariableDef {
-            identifier, var_type, initialised, id
+            identifier, var_type, id
         });
         
         id
@@ -580,17 +580,16 @@ mod tests {
 
         let pos = Position::new();
 
-        chkr.add_variable_def_to_inner_scope("outer".to_string(), checking::Type::Num, false);
+        chkr.add_variable_def_to_inner_scope("outer".to_string(), checking::Type::Num);
         assert_eq!(chkr.variable_lookup("outer", &pos), Ok(&checking::VariableDef {
             identifier: "outer".to_string(),
             var_type: checking::Type::Num,
-            initialised: false,
             id: 0
         }));
 
         chkr.begin_new_scope();
 
-        chkr.add_variable_def_to_inner_scope("inner".to_string(), checking::Type::Bool, false);
+        chkr.add_variable_def_to_inner_scope("inner".to_string(), checking::Type::Bool);
 
         assert!(chkr.variable_lookup("inner", &pos).is_ok());
         assert!(chkr.variable_lookup("outer", &pos).is_ok());
@@ -716,7 +715,7 @@ mod tests {
             Err(checking::Failure::VariableNotInScope(_, _))
         );
 
-        let var_id = chkr.add_variable_def_to_inner_scope("var".to_string(), checking::Type::Num, true);
+        let var_id = chkr.add_variable_def_to_inner_scope("var".to_string(), checking::Type::Num);
 
         chkr.begin_new_scope();
         assert_eq!(
