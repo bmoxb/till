@@ -1,3 +1,4 @@
-display 'a' == 'a'
-display 12.3 * 162.367
-display 'a'
+main()
+	display 'a' == 'a'
+	display 12.3 * 162.367
+	display 'a'

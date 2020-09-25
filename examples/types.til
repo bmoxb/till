@@ -1,3 +1,5 @@
-Num x = (12.36 +  ~0.16) / 2
-Char y = 'x'
-Bool z = true
+main()
+	Num x = 10.24 / 2.65
+	Char y = 'x'
+	Bool z = true
+	display y

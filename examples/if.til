@@ -1,10 +1,13 @@
-Num x = 5
+main()
+	Num x = 5
 
-if x < 5.12
-	x = 7
+	if x < 5.12
+		x = 7
 
-if x > 8
-	x = 2
+	if x > 8
+		x = 2
 
-if !(x == 2)
-	x = 25.8
+	if !(x == 2)
+		x = 25.8
+
+	display x
