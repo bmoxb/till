@@ -192,10 +192,11 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                 instructions.extend(condition_instructions);
                 instructions.push(super::Instruction::JumpIfTrue(start_id));
 
-                Ok(
-                    if let Some(ret_type) = block_ret_type { (instructions, block_locals_count, Some((ret_type, pos))) }
-                    else { (instructions, block_locals_count, None) }
-                )
+                Ok((
+                    instructions, block_locals_count,
+                    if let Some(ret_type) = block_ret_type { Some((ret_type, pos)) }
+                    else { None }
+                ))
             }
 
             parsing::Statement::If { condition, block } => {

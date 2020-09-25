@@ -59,6 +59,7 @@ impl Generator for GenerateElf64 {
     const TARGET_NAME: &'static str = "Linux elf64";
 
     fn handle_instruction(&mut self, instruction: checking::Instruction) {
+        self.text_section.push(Instruction::Comment(format!("{:?}", instruction)));
         match instruction {
             checking::Instruction::Push(val) => {
                 let oprand = match val {
@@ -198,12 +199,14 @@ impl Generator for GenerateElf64 {
                     Instruction::Mov { dest: Oprand::Register(Reg::SrcIndex), src: Oprand::Value(Val::Int(line_number as isize)) },
                     // Indicate number of floating-point arguments:
                     Instruction::Mov { dest: Oprand::Register(Reg::Rax), src: Oprand::Value(Val::Int(float_args_count)) },
-                    // Account for modification of registers by function call:
-                    Instruction::Mov { dest: Oprand::Register(Reg::StackPointer), src: Oprand::Register(Reg::BasePointer) },
+                    // Preserve stack pointer:
+                    Instruction::Mov { dest: Oprand::Register(Reg::Rbx), src: Oprand::Register(Reg::StackPointer) },
+                    // Align stack to 16-byte boundary:
+                    Instruction::BitwiseAnd { dest: Oprand::Register(Reg::StackPointer), src: Oprand::Value(Val::Int(-16)) },
                     // Call printf function:
                     Instruction::Call("printf".to_string()),
-                    // Restore:
-                    Instruction::Mov { dest: Oprand::Register(Reg::BasePointer), src: Oprand::Register(Reg::BasePointer) }
+                    // Restore stack pointer:
+                    Instruction::Mov { dest: Oprand::Register(Reg::StackPointer), src: Oprand::Register(Reg::Rbx) }
                 ]);
             }
 
@@ -305,40 +308,34 @@ impl Generator for GenerateElf64 {
 }
 
 impl GenerateElf64 {
-    fn two_stack_items_to_fpu_stack(&mut self) {
+    fn two_stack_items_to_fpu_stack(&mut self, operation: Instruction) {
         self.text_section.extend(vec![
             Instruction::FpuReset,
             // Load second-to-top of stack onto FPU stack:
             Instruction::FpuPush(Oprand::AddressDisplaced(Box::new(Oprand::Register(Reg::StackPointer)), BYTES_IN_VALUE)),
             // Load top of stack onto FPU stack:
             Instruction::FpuPush(Oprand::Address(Box::new(Oprand::Register(Reg::StackPointer)))),
+            // Perform the given operation:
+            operation,
             // Move stack pointer:
             Instruction::Add { dest: Oprand::Register(Reg::StackPointer), src: Oprand::Value(Val::Int(BYTES_IN_VALUE)) },
         ]);
     }
 
     fn add_arithmetic_instructions(&mut self, operation: Instruction) {
-        self.two_stack_items_to_fpu_stack();
+        self.two_stack_items_to_fpu_stack(operation);
 
-        self.text_section.extend(vec![
-            // Perform the arithmetic operation:
-            operation,
-            // Move result from FPU stack to regular stack:
-            Instruction::FpuPop(
-                Oprand::Address(Box::new(Oprand::Register(Reg::StackPointer)))
-            ),
-        ]);
+        self.text_section.push( // Move result from FPU stack to regular stack:
+            Instruction::FpuPop(Oprand::Address(Box::new(Oprand::Register(Reg::StackPointer)))),
+        );
     }
     
     fn add_comparison_instructions(&mut self, operations: Vec<Instruction>) {
-        self.two_stack_items_to_fpu_stack();
+        self.two_stack_items_to_fpu_stack(Instruction::FpuCompare);
        
-        self.text_section.extend(vec![
-            // Compare items on FPU stack:
-            Instruction::FpuCompare,
-            // Store the FPU status register in ax:
-            Instruction::FpuStatusReg(Oprand::Register(Reg::Ax)),
-        ]);
+        self.text_section.push( // Store the FPU status register in ax:
+            Instruction::FpuStatusReg(Oprand::Register(Reg::Ax))
+        );
         
         self.text_section.extend(operations);
         
@@ -471,13 +468,14 @@ impl AssemblyDisplay for Val {
 }
 
 #[derive(Clone)]
-enum Reg { Rax, Ax, Bx, Rdx, StackPointer, BasePointer, DestIndex, SrcIndex, Xmm0 }
+enum Reg { Rax, Ax, Rbx, Bx, Rdx, StackPointer, BasePointer, DestIndex, SrcIndex, Xmm0 }
 
 impl AssemblyDisplay for Reg {
     fn intel_syntax(self) -> String {
         match self {
             Reg::Rax => "rax",
             Reg::Ax => "ax",
+            Reg::Rbx => "rbx",
             Reg::Bx => "bx",
             Reg::Rdx => "rdx",
             Reg::StackPointer => "rsp",
