@@ -15,19 +15,20 @@
 
 ## Known Issues
 
-* All values are stored as 64-bits regardless of type (especially wasteful in the case of Boolean values).
-* The checker is unable to determine whether a function body will always return provided it contains at least one `return` statement.
-* The checker allows for the use of uninitialised variables.
 * Only indentation with literal `\t` tab characters is allowed - indentation with spaces is not supported.
+* All values are stored as 64-bits regardless of type (especially wasteful in the case of Boolean values).
+* The produced output assembly code is entirely unoptimised.
+* Defining a function expected to return a value that has a function body not guaranteed to return does not result in a compiler error or warning provided at least one `return` statement is found in the function body.
+* The use of uninitialised variables is not prevented nor acknowledged by the compiler.
 
 ## Usage
 
-* `run.sh fib.til` - From the examples/ directory, run the Fibonacci sequence example.
+* `./run.sh fib.til` - Run the Fibonacci sequence example program (must be done from within the `examples/` subdirectory).
 * `cargo run` - Build the project and start interactive mode.
 * `cargo run /dir/code.til` - Compile a till program and write the output assembly to `out.asm` in the current directory.
 * `cargo run /dir/code.til /dir/code.asm` - Compile a till program and write the output assembly to the file at the path specified.
 * `cargo test` - Run unit tests.
-* `cargo doc --open` - Build and show the documentation.
+* `cargo doc --open` - Build and show the documentation (opens in the default browser).
 
 ## Language
 
