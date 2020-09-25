@@ -13,8 +13,6 @@ pub fn input<T: Iterator<Item=parsing::Statement>>(stmts: T) -> super::Result<Ve
 pub struct Checker<T: Iterator<Item=parsing::Statement>> {
     /// Iterator of statements to be checked.
     stmts: T,
-    /// Contains all variables declared outside of any function.
-    // TODO global_variables: HashMap<super::Id, super::VariableDef>,
     /// Contains all function definitions.
     functions: Vec<super::FunctionDef>,
     /// The scope stack. The scope at the end of this vector is the inner most
@@ -58,7 +56,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
         assert!(self.scopes.is_empty());
 
         if self.main_defined { Ok(final_ir) }
-        else { panic!() } // TODO: New error message...
+        else { Err(super::Failure::MainUndefined) }
     }
 
     /// Ensure the validity and evaluate a top-level statement (function or global
@@ -141,10 +139,6 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                     }
                 }
             }
-
-            /*parsing::Statement::VariableDeclaration {var_type, identifier, value } => {
-                unimplemented!() // TODO: Globals...
-            }*/
 
             _ => Err(super::Failure::InvalidTopLevelStatement)
         }

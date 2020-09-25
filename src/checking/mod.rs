@@ -26,7 +26,8 @@ pub enum Failure {
     },
     UnexpectedType { pos: stream::Position, expected: Type, encountered: Type },
     InvalidTopLevelStatement,
-    NestedFunctions(stream::Position, String)
+    NestedFunctions(stream::Position, String),
+    MainUndefined
 }
 
 impl fmt::Display for Failure {
@@ -76,7 +77,10 @@ impl fmt::Display for Failure {
                 write!(f, "Only global variable and function definition statements are allowed at the top-level"),
 
             Failure::NestedFunctions(pos, ident) =>
-                write!(f, "Function '{}' at {} cannot be defined as it is contained within the body of another function", ident, pos)
+                write!(f, "Function '{}' at {} cannot be defined as it is contained within the body of another function", ident, pos),
+
+            Failure::MainUndefined =>
+                write!(f, "All till programs are required to have a main function yet such a function could not be found")
         }
     }
 }
@@ -114,7 +118,7 @@ impl Scope {
     }
 }
 
-pub type Id = usize; // TODO: Unnecessary alias.
+pub type Id = usize;
 
 /// Definition of a variable with a given identifier and type.
 #[derive(Debug, PartialEq)]
