@@ -36,19 +36,9 @@ impl GenerateElf64 {
     }
 }
 
-const BYTES_IN_VALUE: isize = 8;
+const BYTES_IN_VALUE: usize = 8;
 const CARRY_FLAG_BIT_OFFSET: usize = 8;
 const ZERO_FLAG_BIT_OFFSET: usize = 14;
-
-const RETURN_INSTRUCTIONS: &'static [Instruction] = &[
-    // Restore stack pointer:
-    Instruction::Mov {
-        dest: Oprand::Register(Reg::StackPointer),
-        src: Oprand::Register(Reg::BasePointer)
-    },
-    Instruction::Pop(Oprand::Register(Reg::BasePointer)), // Restore the base pointer of the previous frame.
-    Instruction::Ret(0) // TODO
-];
 
 const POP_AND_CMP_WITH_ZERO_INSTRUCTIONS: &'static [Instruction] = &[
     Instruction::Pop(Oprand::Register(Reg::Rax)),
@@ -99,7 +89,7 @@ impl Generator for GenerateElf64 {
                     id,
                     Oprand::AddressDisplaced(
                         Box::new(Oprand::Register(Reg::BasePointer)),
-                        (self.parameter_variable_num as isize + 2) * BYTES_IN_VALUE
+                        ((self.parameter_variable_num + 2) * BYTES_IN_VALUE) as isize
                     )
                 );
 
@@ -111,7 +101,7 @@ impl Generator for GenerateElf64 {
                     id,
                     Oprand::AddressDisplaced(
                         Box::new(Oprand::Register(Reg::BasePointer)),
-                        -BYTES_IN_VALUE * (self.local_variable_num as isize + 1)
+                        -(BYTES_IN_VALUE as isize) * (self.local_variable_num as isize + 1)
                     )
                 );
 
@@ -144,7 +134,7 @@ impl Generator for GenerateElf64 {
                     // Reserve stack space for the storage of local variables:
                     Instruction::Sub {
                         dest: Oprand::Register(Reg::StackPointer),
-                        src: Oprand::Value(Val::Int(local_variable_count as isize * BYTES_IN_VALUE))
+                        src: Oprand::Value(Val::Int((local_variable_count * BYTES_IN_VALUE) as isize))
                     }
                 ]);
             }
@@ -159,12 +149,12 @@ impl Generator for GenerateElf64 {
                 ]);
             }
 
-            checking::Instruction::ReturnVoid => { self.text_section.extend_from_slice(RETURN_INSTRUCTIONS); }
+            checking::Instruction::ReturnVoid => self.add_return_instructions(),
 
             checking::Instruction::ReturnValue => {
                 // Place function return value in register:
                 self.text_section.push(Instruction::Pop(Oprand::Register(Reg::Rax)));
-                self.text_section.extend_from_slice(RETURN_INSTRUCTIONS);
+                self.add_return_instructions();
             }
 
             checking::Instruction::Display { value_type, line_number } => {
@@ -312,13 +302,13 @@ impl GenerateElf64 {
         self.text_section.extend(vec![
             Instruction::FpuReset,
             // Load second-to-top of stack onto FPU stack:
-            Instruction::FpuPush(Oprand::AddressDisplaced(Box::new(Oprand::Register(Reg::StackPointer)), BYTES_IN_VALUE)),
+            Instruction::FpuPush(Oprand::AddressDisplaced(Box::new(Oprand::Register(Reg::StackPointer)), BYTES_IN_VALUE as isize)),
             // Load top of stack onto FPU stack:
             Instruction::FpuPush(Oprand::Address(Box::new(Oprand::Register(Reg::StackPointer)))),
             // Perform the given operation:
             operation,
             // Move stack pointer:
-            Instruction::Add { dest: Oprand::Register(Reg::StackPointer), src: Oprand::Value(Val::Int(BYTES_IN_VALUE)) },
+            Instruction::Add { dest: Oprand::Register(Reg::StackPointer), src: Oprand::Value(Val::Int(BYTES_IN_VALUE as isize)) },
         ]);
     }
 
@@ -347,6 +337,20 @@ impl GenerateElf64 {
                 dest: Oprand::Address(Box::new(Oprand::Register(Reg::StackPointer))),
                 src: Oprand::Register(Reg::Rax)
             }
+        ]);
+    }
+
+    fn add_return_instructions(&mut self) {
+        self.text_section.extend(vec![
+            // Restore stack pointer:
+            Instruction::Mov {
+                dest: Oprand::Register(Reg::StackPointer),
+                src: Oprand::Register(Reg::BasePointer)
+            },
+            // Restore the base pointer of the previous frame:
+            Instruction::Pop(Oprand::Register(Reg::BasePointer)),
+            // Remove parameter values from the stack and return:
+            Instruction::Ret(self.parameter_variable_num * BYTES_IN_VALUE)
         ]);
     }
 }
