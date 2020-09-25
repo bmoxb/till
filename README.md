@@ -18,9 +18,11 @@
 * All values are stored as 64-bits regardless of type (especially wasteful in the case of Boolean values).
 * The checker is unable to determine whether a function body will always return provided it contains at least one `return` statement.
 * The checker allows for the use of uninitialised variables.
+* Only indentation with literal `\t` tab characters is allowed - indentation with spaces is not supported.
 
 ## Usage
 
+* `run.sh fib.til` - From the examples/ directory, run the Fibonacci sequence example.
 * `cargo run` - Build the project and start interactive mode.
 * `cargo run /dir/code.til` - Compile a till program and write the output assembly to `out.asm` in the current directory.
 * `cargo run /dir/code.til /dir/code.asm` - Compile a till program and write the output assembly to the file at the path specified.
