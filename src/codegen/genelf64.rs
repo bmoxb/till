@@ -8,13 +8,14 @@ pub fn input(instructions: Vec<checking::Instruction>) -> String {
 
 struct GenerateElf64 {
     text_section: Vec<Instruction>,
-    bss_section: Vec<Instruction>,
     rodata_section: Vec<Instruction>,
     num_label_counter: usize,
-    //global_variable_labels: HashMap<checking::Id,
     function_variable_locations: HashMap<checking::Id, Oprand>,
     local_variable_num: usize,
-    parameter_variable_num: usize
+    parameter_variable_num: usize,
+    display_num_used: bool,
+    display_bool_used: bool,
+    display_char_used: bool
 }
 
 impl GenerateElf64 {
@@ -26,12 +27,14 @@ impl GenerateElf64 {
                 Instruction::Extern("printf".to_string()),
                 Instruction::Global("main".to_string())
             ],
-            bss_section: vec![Instruction::Section("bss".to_string())],
             rodata_section: vec![Instruction::Section("rodata".to_string())],
             num_label_counter: 0,
             function_variable_locations: HashMap::new(),
             local_variable_num: 0,
-            parameter_variable_num: 0
+            parameter_variable_num: 0,
+            display_num_used: false,
+            display_bool_used: false,
+            display_char_used: false
         }
     }
 }
@@ -108,11 +111,6 @@ impl Generator for GenerateElf64 {
                 self.local_variable_num += 1;
             }
 
-            /*checking::Instruction::Global(id) => {
-                // TODO: Store in data section...
-                unimplemented!()
-            }*/
-
             checking::Instruction::Label(id) => { self.text_section.push(Instruction::Label(label(id))); }
 
             checking::Instruction::Function { label, local_variable_count } => {
@@ -160,16 +158,19 @@ impl Generator for GenerateElf64 {
             checking::Instruction::Display { value_type, line_number } => {
                 let (format_label, float_args_count) = match value_type {
                     checking::Type::Char => {
+                        self.display_char_used = true;
                         // Pop character from stack into rdx (third argument):
                         self.text_section.push(Instruction::Pop(Oprand::Register(Reg::Rdx)));
                         ("display_char", 0)
                     }
                     checking::Type::Bool => {
+                        self.display_bool_used = true;
                         // Pop bool from stack into rdx (third argument):
                         self.text_section.push(Instruction::Pop(Oprand::Register(Reg::Rdx)));
                         ("display_bool", 0)
                     }
                     checking::Type::Num => {
+                        self.display_num_used = true;
                         // Pop and store float in xmm0 register (first floating-point argument):
                         self.text_section.extend(vec![
                             Instruction::Pop(Oprand::Register(Reg::Rax)),
@@ -279,18 +280,27 @@ impl Generator for GenerateElf64 {
     }
 
     fn construct_output(mut self) -> String {
-        self.rodata_section.extend(vec![
-            Instruction::Label("display_char".to_string()),
-            Instruction::DeclareString(r"Line %u character value: '%c'\n\0".to_string()),
+        if self.display_char_used {
+            self.rodata_section.extend(vec![
+                Instruction::Label("display_char".to_string()),
+                Instruction::DeclareString(r"Line %u character value: '%c'\n\0".to_string())
+            ]);
+        }
 
-            Instruction::Label("display_bool".to_string()),
-            Instruction::DeclareString(r"Line %u boolean value: %lld\n\0".to_string()),
+        if self.display_bool_used {
+            self.rodata_section.extend(vec![
+                Instruction::Label("display_bool".to_string()),
+                Instruction::DeclareString(r"Line %u boolean value: %lld\n\0".to_string())
+            ]);
+        }
 
-            Instruction::Label("display_num".to_string()),
-            Instruction::DeclareString(r"Line %u number value: %f\n\0".to_string())
-        ]);
+        if self.display_num_used {
+            self.rodata_section.extend(vec![
+                Instruction::Label("display_num".to_string()),
+                Instruction::DeclareString(r"Line %u number value: %f\n\0".to_string())
+            ]);
+        }
 
-        self.text_section.extend(self.bss_section.into_iter());
         self.text_section.extend(self.rodata_section.into_iter());
 
         self.text_section.into_iter().map(|x| x.intel_syntax()).collect::<Vec<String>>().join("")
@@ -494,5 +504,3 @@ impl AssemblyDisplay for Reg {
 fn label(id: usize) -> String { format!("label{}", id) }
 
 fn literal_label(counter: usize) -> String { format!("literal{}", counter) }
-
-// TODO: Tests...
