@@ -1,5 +1,7 @@
 # Till
 
+[![Build Status](https://travis-ci.com/WiredSound/till.svg?branch=master)](https://travis-ci.com/WiredSound/till)
+
 **This project is for learning purposes only.**
 
 ## Features
