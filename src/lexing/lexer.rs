@@ -221,8 +221,8 @@ lazy_static::lazy_static! {
             StateKey::Newline,
             super::State {
                 parse: super::Parse::ByFunction(&|lexeme| {
-                    let line = lexeme.split("\n").last().unwrap(); // Ignore any empty lines, only consider final populated line.
-                    TokenType::Newline(line.matches("\t").count())
+                    let line = lexeme.split('\n').last().unwrap(); // Ignore any empty lines, only consider final populated line.
+                    TokenType::Newline(line.matches('\t').count())
                 }),
                 transitions: vec![
                     super::Transition {
