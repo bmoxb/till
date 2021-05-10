@@ -107,7 +107,7 @@ where StateKey: Eq + Copy + Hash + fmt::Debug, TokenType: Clone + fmt::Debug {
 /// input character. Will return `Some` holding the next state key should an
 /// appropriate transition be found (whether to the current state or elsewhere).
 /// `None` is returned when no appropriate transitions could be found.
-fn attempt_state_transition<StateKey>(current_key: StateKey, transitions : &Vec<Transition<StateKey>>, chr: char) -> Option<StateKey>
+fn attempt_state_transition<StateKey>(current_key: StateKey, transitions : &[Transition<StateKey>], chr: char) -> Option<StateKey>
 where StateKey: Copy + fmt::Debug {
     for transition in transitions {
         if transition.match_by.is_a_match(chr) {
