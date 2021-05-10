@@ -256,7 +256,7 @@ impl<T: Iterator<Item=lexer::Token>> StatementStream<T> {
         let param_type = self.consume_type_identifier("function parameter type")?;
         let (identifier, pos) = self.consume_identifier("function parameter identifier")?;
 
-        Ok(super::Parameter { param_type, pos, identifier  })
+        Ok(super::Parameter { param_type, identifier, pos })
     }
 
     /// Parse a block (a collection of one or more sequential statements that
