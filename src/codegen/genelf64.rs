@@ -46,7 +46,7 @@ const BYTES_IN_VALUE: usize = 8;
 const CARRY_FLAG_BIT_OFFSET: usize = 8;
 const ZERO_FLAG_BIT_OFFSET: usize = 14;
 
-const POP_AND_CMP_WITH_ZERO_INSTRUCTIONS: &'static [Instruction] = &[
+const POP_AND_CMP_WITH_ZERO_INSTRUCTIONS: &[Instruction] = &[
     Instruction::Pop(Oprand::Register(Reg::Rax)),
     Instruction::Cmp { dest: Oprand::Register(Reg::Rax), src: Oprand::Value(Val::Int(0)) }
 ];

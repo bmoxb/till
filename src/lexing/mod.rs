@@ -163,7 +163,7 @@ impl<TokenType, StateKey> LexerSettings<'_, TokenType, StateKey>
 where StateKey: Eq + Hash + fmt::Debug {
     /// Method to fetch a state using a given state key - panics if state does
     /// not exist.
-    fn get_state<'a>(&'a self, key: StateKey) -> &'a State<'a, TokenType, StateKey> {
+    fn get_state(&self, key: StateKey) -> &State<'_, TokenType, StateKey> {
         self.states.get(&key).expect(&format!("Lexer transitioned into an undefined state: {:?}", key))
     }
 }
@@ -193,7 +193,7 @@ enum Parse<'a, TokenType> {
 
 impl<TokenType> Parse<'_, TokenType>
 where TokenType: Clone {
-    fn lexeme_string_to_token_type<'a, StateKey>(&self, lexeme_text: &str) -> Option<TokenType> {
+    fn lexeme_string_to_token_type<StateKey>(&self, lexeme_text: &str) -> Option<TokenType> {
         match self {
             Parse::To(tok) => Some(tok.clone()),
             Parse::ByFunction(func) => Some(func(lexeme_text)),
