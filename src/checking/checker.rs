@@ -115,10 +115,10 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                         }
                     } // Function body doesn't return anything:
                     else {
-                        return Err(super::Failure::FunctionUnexpectedReturnType {
+                        Err(super::Failure::FunctionUnexpectedReturnType {
                             pos, identifier, params: param_types.to_vec(),
                             expected: expected_return_type, encountered: None
-                        });
+                        })
                     }
                 } // No return type specified in signature:
                 else {
