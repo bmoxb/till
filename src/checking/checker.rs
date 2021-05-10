@@ -85,7 +85,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
 
                 // Check if the function already exists:
                 if self.function_lookup(&identifier, param_types.as_slice(), &pos).is_ok() {
-                    return Err(super::Failure::RedefinedExistingFunction(identifier.to_string(), param_types.to_vec()))
+                    return Err(super::Failure::RedefinedExistingFunction(identifier, param_types.to_vec()))
                 }
                 else {
                     // Create the function definition before evaluating the body
@@ -439,7 +439,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
                 );
 
                 match option_ret_type {
-                    Some(ret_type) => Ok((instructions, ret_type.clone(), pos)),
+                    Some(ret_type) => Ok((instructions, ret_type, pos)),
                     None => Err(super::Failure::VoidFunctionInExpr(pos, ident, arg_types))
                 }
             }
