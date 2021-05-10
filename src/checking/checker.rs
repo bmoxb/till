@@ -188,8 +188,7 @@ impl<T: Iterator<Item=parsing::Statement>> Checker<T> {
 
                 Ok((
                     instructions, block_locals_count,
-                    if let Some(ret_type) = block_ret_type { Some((ret_type, pos)) }
-                    else { None }
+                    block_ret_type.map(|ret_type| (ret_type, pos))
                 ))
             }
 
