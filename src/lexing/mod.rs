@@ -164,7 +164,7 @@ where StateKey: Eq + Hash + fmt::Debug {
     /// Method to fetch a state using a given state key - panics if state does
     /// not exist.
     fn get_state(&self, key: StateKey) -> &State<'_, TokenType, StateKey> {
-        self.states.get(&key).expect(&format!("Lexer transitioned into an undefined state: {:?}", key))
+        self.states.get(&key).unwrap_or_else(|| panic!("Lexer transitioned into an undefined state: {:?}", key))
     }
 }
 
